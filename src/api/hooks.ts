@@ -10,8 +10,10 @@ import {
   type HealthResponse,
   type KbCategoriesResponse,
   type KnowledgeBasesResponse,
+  type KnowledgePacksResponse,
   type McpServersResponse,
   type MetricsResponse,
+  type OntologyTypesResponse,
   type PromptVersionsResponse,
   type RuntimeConfigInfo,
   type SkillsResponse,
@@ -107,3 +109,9 @@ export const useKbCategories = () =>
 
 export const useKnowledgeBases = () =>
   useAsync<KnowledgeBasesResponse>(() => api.listKnowledgeBases(), { pollMs: 30_000 });
+
+export const useKnowledgePacks = () =>
+  useAsync<KnowledgePacksResponse>(() => api.knowledgePacks(), { pollMs: 60_000 });
+
+export const useOntologyTypes = () =>
+  useAsync<OntologyTypesResponse>(() => api.ontologyTypes(), { pollMs: 60_000 });

@@ -165,6 +165,73 @@ export interface KnowledgeBaseCreatePayload {
   name: string; description?: string; kb_type: KbType; category_id?: string;
 }
 
+// ── 本体层（Ontology Layer）只读元模型 ──
+/** 属性数据类型：镜像后端 PropertyType（snake_case）。 */
+export type PropertyType = 'string' | 'text' | 'integer' | 'number' | 'boolean' | 'date_time' | 'enum';
+/** 链接基数：镜像后端 Cardinality（snake_case）。 */
+export type Cardinality = 'one_to_one' | 'one_to_many' | 'many_to_one' | 'many_to_many';
+/** side-effect 类型：镜像后端 SideEffectKind（snake_case）。 */
+export type SideEffectKind = 'create_object' | 'update_property' | 'create_link';
+
+export interface PropertySpec {
+  name: string; label: string; prop_type: PropertyType;
+  required: boolean; description?: string; enum_values?: string[];
+}
+export interface ObjectType {
+  id: string; iri: string; label: string; description: string;
+  icon: string; color: string; primary_key: string;
+  title_property: string; properties: PropertySpec[];
+}
+export interface LinkType {
+  id: string; iri: string; label: string; description: string;
+  source: string; target: string; cardinality: Cardinality;
+}
+export interface ActionParam {
+  name: string; label: string; prop_type: PropertyType; required: boolean;
+}
+export interface SideEffect {
+  kind: SideEffectKind; target_object_type: string; description: string;
+}
+export interface ActionType {
+  id: string; iri: string; label: string; description: string;
+  applies_to: string; parameters: ActionParam[];
+  preconditions: string[]; side_effects: SideEffect[]; icon: string;
+}
+export interface FunctionDef {
+  id: string; label: string; description: string;
+  applies_to: string; returns: PropertyType; expression: string;
+}
+export interface OntologyCounts {
+  object_types: number; link_types: number; action_types: number; functions: number;
+}
+export interface OntologyTypesResponse {
+  domain: string; counts: OntologyCounts;
+  object_types: ObjectType[]; link_types: LinkType[];
+  action_types: ActionType[]; functions: FunctionDef[];
+}
+export interface KnowledgePack {
+  id: string; name: string; description: string; version: string;
+  icon: string; color: string; named_graph: string;
+  vector_namespace: string; ontology_domain: string; stats: OntologyCounts;
+}
+export interface KnowledgePacksResponse { count: number; knowledge_packs: KnowledgePack[] }
+
+/** 动力层动作调用请求：target=applies_to 对象主键，params=参数键值，dry_run=仅预览不写库。 */
+export interface ActionInvokeRequest {
+  target?: string;
+  params: Record<string, string | number | boolean>;
+  dry_run?: boolean;
+}
+/** 动作调用结果：status 为 ok / dry_run；dry_run 时返回 sparql 预览。 */
+export interface ActionInvokeResult {
+  status: 'ok' | 'dry_run';
+  action: string;
+  graph: string;
+  applied?: number;
+  sparql?: string[];
+  result: Record<string, unknown>;
+}
+
 // ---------- 端点 ----------
 export const api = {
   health: () => request<HealthResponse>('/health'),
@@ -284,6 +351,15 @@ export const api = {
   deleteKnowledgeBase: (id: string) =>
     request<{ status: string; id: string }>(`/api/v1/kb/bases/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+    }),
+  // ── 本体层（Ontology Layer）只读元模型 ──
+  knowledgePacks: () => request<KnowledgePacksResponse>('/api/v1/knowledge-packs'),
+  ontologyTypes: () => request<OntologyTypesResponse>('/api/v1/ontology/types'),
+  // ── 动力层：执行动作（dry_run 预览 / 真正写回命名图） ──
+  invokeAction: (id: string, body: ActionInvokeRequest) =>
+    request<ActionInvokeResult>(`/api/v1/ontology/actions/${encodeURIComponent(id)}/invoke`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
 };
 

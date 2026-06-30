@@ -17,6 +17,7 @@ import Settings from './pages/Settings';
 import Documentation from './pages/Documentation';
 import TaskConsole from './pages/TaskConsole';
 import PromptManagement from './pages/PromptManagement';
+import OntologyLayer from './pages/OntologyLayer';
 
 /** 从 URL hash 解析初始页面（支持深链与截图脚本直达各页）。 */
 function pageFromHash(): string {
@@ -48,6 +49,7 @@ export default function App() {
       case 'agents': return <AgentManagement />;
       case 'runtime': return <RuntimeKernel />;
       case 'memory': return <MemorySystem />;
+      case 'ontology': return <OntologyLayer />;
       case 'registry': return <SkillRegistry />;
       case 'mcp': return <MCPHub />;
       case 'security': return <Security />;
