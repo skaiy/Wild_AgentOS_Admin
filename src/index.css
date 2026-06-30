@@ -1,0 +1,55 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/*
+ * 企业级中性主题（黑灰白专业风格）
+ * 思路：集中覆盖 Tailwind v4 设计令牌，全站既有的 blue/purple/indigo 等"AI 味"
+ *      装饰色统一重映射到中性 zinc 灰阶（主操作色近黑），同时收紧圆角比例为
+ *      小半径，使组件更克制精致。功能性状态色（green/red/amber/emerald）保留。
+ */
+@theme {
+  /* ---- 小半径圆角：收紧整体观感 ---- */
+  --radius-md: 0.25rem;   /* 4px */
+  --radius-lg: 0.375rem;  /* 6px（最常用卡片/按钮） */
+  --radius-xl: 0.5rem;    /* 8px */
+  --radius-2xl: 0.625rem; /* 10px */
+
+  /* ---- blue → 中性灰（主色近黑，浅阶用于背景/边框） ---- */
+  --color-blue-50: #f4f4f5;
+  --color-blue-100: #e4e4e7;
+  --color-blue-200: #d4d4d8;
+  --color-blue-300: #a1a1aa;
+  --color-blue-400: #71717a;
+  --color-blue-500: #52525b;
+  --color-blue-600: #27272a;
+  --color-blue-700: #18181b;
+  --color-blue-800: #18181b;
+  --color-blue-900: #18181b;
+  --color-blue-950: #09090b;
+
+  /* ---- indigo → 同中性灰 ---- */
+  --color-indigo-50: #f4f4f5;
+  --color-indigo-100: #e4e4e7;
+  --color-indigo-200: #d4d4d8;
+  --color-indigo-300: #a1a1aa;
+  --color-indigo-400: #71717a;
+  --color-indigo-500: #52525b;
+  --color-indigo-600: #27272a;
+  --color-indigo-700: #18181b;
+  --color-indigo-800: #18181b;
+  --color-indigo-900: #18181b;
+  --color-indigo-950: #09090b;
+
+  /* ---- purple → 同中性灰 ---- */
+  --color-purple-50: #f4f4f5;
+  --color-purple-100: #e4e4e7;
+  --color-purple-200: #d4d4d8;
+  --color-purple-300: #a1a1aa;
+  --color-purple-400: #71717a;
+  --color-purple-500: #52525b;
+  --color-purple-600: #27272a;
+  --color-purple-700: #18181b;
+  --color-purple-800: #18181b;
+  --color-purple-900: #18181b;
+  --color-purple-950: #09090b;
+}

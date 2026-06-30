@@ -1,0 +1,628 @@
+import { useEffect, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Database, Clock, HardDrive, Search, Plus, X, UploadCloud, Share2, ChevronRight, Play, Tag, Pencil, Trash2, Check, Network, List } from 'lucide-react';
+import { useMetrics, useAgents, useKbCategories, useKnowledgeBases } from '../api/hooks';
+import { api, type KbCategory } from '../api/client';
+import LiveBadge from '../components/LiveBadge';
+import KgGraph from '../components/KgGraph';
+
+/** 字节转人类可读单位。 */
+function fmtBytes(n: number): string {
+  if (!n) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), u.length - 1);
+  return `${(n / 1024 ** i).toFixed(1)} ${u[i]}`;
+}
+
+export default function MemorySystem() {
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [kbType, setKbType] = useState<'vector' | 'graph'>('vector');
+  const [viewKb, setViewKb] = useState<{ graph: string; agent: string } | null>(null);
+  const metrics = useMetrics();
+  const live = metrics.live;
+  const m = metrics.data;
+
+  // 知识库分类（持久化 CRUD）与知识库（持久化）
+  const categories = useKbCategories();
+  const knowledgeBases = useKnowledgeBases();
+  const catList = categories.data?.categories ?? [];
+  const catName = (id: string) => catList.find(c => c.id === id)?.name ?? '';
+
+  // 知识库列表：持久化知识库 + 已绑定知识图谱的智能体
+  const agents = useAgents();
+  const kbRows = [
+    ...(knowledgeBases.data?.bases ?? []).map(b => ({
+      graph: b.graph || `（向量库）${b.name}`,
+      agent: b.name,
+      kbType: b.kb_type as string,
+      category: catName(b.category_id),
+      id: b.id,
+      isGraph: b.kb_type === 'graph' && !!b.graph,
+    })),
+    ...(agents.data?.agents ?? [])
+      .filter(a => a.knowledge_graph)
+      .map(a => ({ graph: a.knowledge_graph as string, agent: a.name, kbType: 'graph', category: '', id: '', isGraph: true })),
+  ];
+
+  // 新建知识库表单
+  const [kbName, setKbName] = useState('');
+  const [kbDesc, setKbDesc] = useState('');
+  const [kbCategoryId, setKbCategoryId] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createErr, setCreateErr] = useState<string | null>(null);
+
+  const submitCreateKb = async () => {
+    if (!kbName.trim()) { setCreateErr('请填写知识库名称'); return; }
+    setCreating(true); setCreateErr(null);
+    try {
+      await api.createKnowledgeBase({
+        name: kbName.trim(),
+        description: kbDesc.trim(),
+        kb_type: kbType,
+        category_id: kbCategoryId || undefined,
+      });
+      setIsCreateOpen(false);
+      setKbName(''); setKbDesc(''); setKbCategoryId('');
+      knowledgeBases.refresh();
+    } catch (e: any) {
+      setCreateErr(e?.message ?? String(e));
+    } finally { setCreating(false); }
+  };
+
+  // 分类管理表单
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatDesc, setNewCatDesc] = useState('');
+  const [catBusy, setCatBusy] = useState(false);
+  const [editingCat, setEditingCat] = useState<KbCategory | null>(null);
+
+  const createCategory = async () => {
+    if (!newCatName.trim()) return;
+    setCatBusy(true);
+    try {
+      await api.createKbCategory({ name: newCatName.trim(), description: newCatDesc.trim() });
+      setNewCatName(''); setNewCatDesc('');
+      categories.refresh();
+    } finally { setCatBusy(false); }
+  };
+  const saveEditCategory = async () => {
+    if (!editingCat) return;
+    setCatBusy(true);
+    try {
+      await api.updateKbCategory(editingCat.id, { name: editingCat.name, description: editingCat.description });
+      setEditingCat(null);
+      categories.refresh();
+    } finally { setCatBusy(false); }
+  };
+  const removeCategory = async (id: string) => {
+    setCatBusy(true);
+    try { await api.deleteKbCategory(id); categories.refresh(); } finally { setCatBusy(false); }
+  };
+  const removeKb = async (id: string) => {
+    if (!id) return;
+    try { await api.deleteKnowledgeBase(id); knowledgeBases.refresh(); } catch { /* noop */ }
+  };
+
+  // 查看抽屉：按命名图实时查询三元组
+  const [triples, setTriples] = useState<Record<string, string>[] | null>(null);
+  const [triLoading, setTriLoading] = useState(false);
+  const [triError, setTriError] = useState<string | null>(null);
+  const [triView, setTriView] = useState<'graph' | 'list'>('graph');
+  useEffect(() => {
+    if (!viewKb) { setTriples(null); setTriError(null); return; }
+    let cancelled = false;
+    setTriLoading(true); setTriError(null); setTriples(null);
+    api.kgQuery('SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 100', viewKb.graph)
+      .then(r => { if (!cancelled) setTriples(r.results as Record<string, string>[]); })
+      .catch(e => { if (!cancelled) setTriError(e?.message ?? String(e)); })
+      .finally(() => { if (!cancelled) setTriLoading(false); });
+    return () => { cancelled = true; };
+  }, [viewKb]);
+
+  // KG 实时查询面板
+  const [sparql, setSparql] = useState('SELECT ?s ?p ?o WHERE { ?s ?p ?o . } LIMIT 10');
+  const [kgResults, setKgResults] = useState<unknown[] | null>(null);
+  const [kgLoading, setKgLoading] = useState(false);
+  const [kgError, setKgError] = useState<string | null>(null);
+
+  const runKgQuery = async () => {
+    setKgLoading(true); setKgError(null); setKgResults(null);
+    try {
+      const res = await api.kgQuery(sparql);
+      setKgResults(res.results);
+    } catch (e: any) {
+      setKgError(e?.message ?? String(e));
+    } finally { setKgLoading(false); }
+  };
+
+  return (
+    <div className="space-y-6 relative">
+      <div className="flex items-center gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Memory System (记忆系统)</h1>
+          <p className="text-sm text-gray-500 mt-1">短期会话记忆与长期知识库管理 (RAG)</p>
+        </div>
+        <LiveBadge live={live} loading={metrics.loading} error={metrics.error} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Short-term Memory */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+              <Clock className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">短期记忆 (Session Memory)</h2>
+              <p className="text-xs text-gray-500">会话上下文管理与Token滑动窗口</p>
+            </div>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">事件总线消息数</span>
+              <span className="font-bold text-gray-900">{live && m ? m.events.toLocaleString() : '—'}</span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">活跃订阅者</span>
+              <span className="font-bold text-gray-900">{live && m ? m.subscribers.toLocaleString() : '—'}</span>
+            </div>
+            {!live && <div className="text-xs text-gray-400 text-center pt-2">后端离线，暂无实时会话指标</div>}
+          </div>
+        </div>
+
+        {/* Long-term Memory */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
+              <HardDrive className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">长期记忆 (Knowledge Memory)</h2>
+              <p className="text-xs text-gray-500">知识库挂载与动态 RAG 检索</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">L2 知识节点数</span>
+              <span className="font-bold text-gray-900">{live && m ? m.l2_nodes.toLocaleString() : '—'}</span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">L2 存储量</span>
+              <span className="font-bold text-gray-900">{live && m ? fmtBytes(m.l2_bytes) : '—'}</span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">检查点 (Checkpoints)</span>
+              <span className="font-bold text-gray-900">{live && m ? m.checkpoints.toLocaleString() : '—'}</span>
+            </div>
+            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">已注册技能</span>
+              <span className="font-bold text-gray-900">{live && m ? m.skills.toLocaleString() : '—'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Knowledge Base Categories（知识库分类管理 CRUD） */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+          <Tag className="w-4 h-4 text-amber-600" />
+          <h2 className="text-lg font-bold text-gray-900">知识库分类</h2>
+          <span className="text-xs text-gray-500 ml-1">分类持久化 · 新建知识库时可归类</span>
+          {!categories.live && <span className="text-xs text-gray-400 ml-auto">后端离线</span>}
+        </div>
+        <div className="p-4 space-y-4">
+          {/* 新建分类表单 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              value={newCatName}
+              onChange={e => setNewCatName(e.target.value)}
+              placeholder="分类名称，如：动力电池"
+              className="flex-1 min-w-[160px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+            <input
+              value={newCatDesc}
+              onChange={e => setNewCatDesc(e.target.value)}
+              placeholder="分类描述（可选）"
+              className="flex-1 min-w-[160px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+            <button
+              onClick={createCategory}
+              disabled={catBusy || !newCatName.trim()}
+              className="flex items-center gap-1 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 disabled:opacity-40"
+            >
+              <Plus className="w-4 h-4" /> 新增分类
+            </button>
+          </div>
+          {/* 分类列表 */}
+          {catList.length === 0 ? (
+            <div className="text-sm text-gray-400 text-center py-6">
+              {categories.live ? '暂无知识库分类，请先新增分类' : '后端离线，无法加载分类'}
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg">
+              {catList.map(c => (
+                <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+                  {editingCat?.id === c.id ? (
+                    <>
+                      <input
+                        value={editingCat.name}
+                        onChange={e => setEditingCat({ ...editingCat, name: e.target.value })}
+                        className="flex-1 border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                      <input
+                        value={editingCat.description}
+                        onChange={e => setEditingCat({ ...editingCat, description: e.target.value })}
+                        className="flex-1 border border-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                      <button onClick={saveEditCategory} disabled={catBusy} className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-md" title="保存">
+                        <Check className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setEditingCat(null)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md" title="取消">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex items-center gap-2 font-medium text-gray-900">
+                        <Tag className="w-4 h-4 text-amber-500" /> {c.name}
+                      </span>
+                      <span className="text-sm text-gray-500 flex-1 truncate">{c.description}</span>
+                      <button onClick={() => setEditingCat({ ...c })} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md" title="编辑">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => removeCategory(c.id)} disabled={catBusy} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md" title="删除">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Knowledge Bases List */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <h2 className="text-lg font-bold text-gray-900">核心知识库列表</h2>
+          <div className="flex gap-2">
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="text" placeholder="搜索知识库..." className="pl-9 pr-4 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <button 
+              onClick={() => setIsCreateOpen(true)}
+              className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4" /> 新建知识库
+            </button>
+          </div>
+        </div>
+        <table className="w-full text-left text-sm text-gray-600">
+          <thead className="bg-gray-50 text-gray-700 font-medium border-b border-gray-200">
+            <tr>
+              <th className="px-6 py-3">知识库 / 命名图</th>
+              <th className="px-6 py-3">类型</th>
+              <th className="px-6 py-3">分类</th>
+              <th className="px-6 py-3 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {kbRows.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-6 py-10 text-center text-gray-400">
+                  {knowledgeBases.live || agents.live ? '暂无知识库，请点击「新建知识库」创建' : '后端离线，无法加载知识库列表'}
+                </td>
+              </tr>
+            )}
+            {kbRows.map((kb, i) => (
+              <tr key={i} className="hover:bg-gray-50">
+                <td className="px-6 py-4 font-medium text-gray-900">
+                  <div className="flex items-center gap-2">
+                    {kb.kbType === 'graph' ? <Share2 className="w-4 h-4 text-purple-500" /> : <Database className="w-4 h-4 text-blue-500" />}
+                    <span className="font-mono text-xs">{kb.graph}</span>
+                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5 ml-6">{kb.agent}</div>
+                </td>
+                <td className="px-6 py-4">
+                  <span className={`px-2 py-1 rounded-md text-xs ${kb.kbType === 'graph' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
+                    {kb.kbType === 'graph' ? '图数据库' : '向量数据库'}
+                  </span>
+                </td>
+                <td className="px-6 py-4">
+                  {kb.category
+                    ? <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded-md text-xs flex items-center gap-1 w-fit"><Tag className="w-3 h-3" />{kb.category}</span>
+                    : <span className="text-gray-300 text-xs">未分类</span>}
+                </td>
+                <td className="px-6 py-4 text-right whitespace-nowrap">
+                  {kb.isGraph && (
+                    <button
+                      onClick={() => setViewKb({ graph: kb.graph, agent: kb.agent })}
+                      className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                    >
+                      查看三元组
+                    </button>
+                  )}
+                  {kb.id && (
+                    <button
+                      onClick={() => removeKb(kb.id)}
+                      className="text-red-500 hover:text-red-700 font-medium text-sm ml-3"
+                    >
+                      删除
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* View KB Drawer：实时查询命名图三元组 */}
+      <AnimatePresence>
+        {viewKb && (
+          <div className="fixed inset-0 z-50 flex justify-end">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+              onClick={() => setViewKb(null)}
+            />
+            <motion.div
+              initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative w-full max-w-3xl bg-white h-full shadow-2xl flex flex-col"
+            >
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <Share2 className="w-5 h-5 text-purple-600" />
+                    <span className="font-mono text-base">{viewKb.graph}</span>
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">关联智能体: {viewKb.agent}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {triples && triples.length > 0 && (
+                    <div className="flex bg-white border border-gray-200 rounded-lg p-0.5">
+                      <button
+                        onClick={() => setTriView('graph')}
+                        className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${triView === 'graph' ? 'bg-purple-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                      >
+                        <Network className="w-3.5 h-3.5" /> 图谱视图
+                      </button>
+                      <button
+                        onClick={() => setTriView('list')}
+                        className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${triView === 'list' ? 'bg-purple-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
+                      >
+                        <List className="w-3.5 h-3.5" /> 列表视图
+                      </button>
+                    </div>
+                  )}
+                  <button onClick={() => setViewKb(null)} className="text-gray-400 hover:text-gray-600 p-2 rounded-md hover:bg-gray-200 transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
+                <div className="bg-purple-50 text-purple-800 text-sm p-3 rounded-lg border border-purple-100 flex items-center gap-2 mb-4">
+                  <Share2 className="w-4 h-4" />
+                  实时查询命名图三元组 (Subject &rarr; Predicate &rarr; Object)，最多 100 条
+                </div>
+                {triLoading && <div className="text-sm text-gray-500 text-center py-8">查询中…</div>}
+                {triError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{triError}</div>}
+                {triples !== null && triples.length === 0 && !triLoading && (
+                  <div className="text-sm text-gray-400 text-center py-8">该命名图暂无三元组数据</div>
+                )}
+                {triples && triples.length > 0 && triView === 'graph' && (
+                  <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                    <KgGraph triples={triples} height={520} />
+                  </div>
+                )}
+                {triples && triples.length > 0 && triView === 'list' && (
+                  <div className="space-y-3">
+                    {triples.map((t, idx) => (
+                      <div key={idx} className="bg-white border border-gray-200 rounded-lg p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex-1 bg-blue-50 text-blue-700 px-3 py-2 rounded-md border border-blue-100 text-center font-medium text-xs truncate" title={t['?s']}>
+                          {t['?s']}
+                        </div>
+                        <div className="flex items-center w-32 shrink-0">
+                          <div className="h-px bg-gray-300 flex-1"></div>
+                          <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200 z-10 whitespace-nowrap truncate max-w-[90px]" title={t['?p']}>
+                            {t['?p']}
+                          </span>
+                          <div className="h-px bg-gray-300 flex-1"></div>
+                          <ChevronRight className="w-3 h-3 text-gray-400 -ml-1" />
+                        </div>
+                        <div className="flex-1 bg-emerald-50 text-emerald-700 px-3 py-2 rounded-md border border-emerald-100 text-center font-medium text-xs truncate" title={t['?o']}>
+                          {t['?o']}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Create KB Modal */}
+      <AnimatePresence>
+        {isCreateOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setIsCreateOpen(false)}
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} 
+              className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden relative z-10 flex flex-col"
+            >
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+                <h2 className="text-lg font-bold text-gray-900">新建知识库</h2>
+                <button onClick={() => setIsCreateOpen(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">知识库名称</label>
+                  <input
+                    type="text"
+                    value={kbName}
+                    onChange={e => setKbName(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="例如：2026年产品手册库"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">知识库描述（可选）</label>
+                  <input
+                    type="text"
+                    value={kbDesc}
+                    onChange={e => setKbDesc(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="简要描述该知识库的用途"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">知识库分类</label>
+                  <select
+                    value={kbCategoryId}
+                    onChange={e => setKbCategoryId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500 outline-none bg-white"
+                  >
+                    <option value="">未分类</option>
+                    {catList.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  {catList.length === 0 && (
+                    <p className="text-xs text-gray-400 mt-1">暂无分类，可在上方「知识库分类」区先创建</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-3">知识库类型</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <button 
+                      onClick={() => setKbType('vector')}
+                      className={`p-4 border rounded-xl flex flex-col items-center gap-2 transition-colors ${
+                        kbType === 'vector' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-blue-300 text-gray-600'
+                      }`}
+                    >
+                      <Database className="w-8 h-8" />
+                      <span className="font-medium">向量数据库 (Vector DB)</span>
+                      <span className="text-xs text-center opacity-80">适用于文档、PDF、图片等多模态非结构化数据，支持语义检索。</span>
+                    </button>
+                    <button 
+                      onClick={() => setKbType('graph')}
+                      className={`p-4 border rounded-xl flex flex-col items-center gap-2 transition-colors ${
+                        kbType === 'graph' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-purple-300 text-gray-600'
+                      }`}
+                    >
+                      <Share2 className="w-8 h-8" />
+                      <span className="font-medium">图数据库 (Graph DB)</span>
+                      <span className="text-xs text-center opacity-80">适用于实体关系、维修图谱、故障树等结构化关联数据。</span>
+                    </button>
+                  </div>
+                </div>
+
+                {kbType === 'vector' && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">文档分块策略 (Chunking)</label>
+                      <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                        <option>智能语义分块 (推荐)</option>
+                        <option>固定长度 (500 Tokens)</option>
+                        <option>按段落/标题分割</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">上传文档源</label>
+                      <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-blue-400 transition-colors cursor-pointer">
+                        <UploadCloud className="w-8 h-8 mb-2 text-gray-400" />
+                        <p className="text-sm font-medium text-gray-700">点击或拖拽文件到此处</p>
+                        <p className="text-xs mt-1">支持 PDF, Word, TXT, Markdown (最大 50MB/文件)</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {kbType === 'graph' && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">图谱 Schema 定义 (JSON/YAML)</label>
+                      <textarea className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono" rows={4} placeholder="定义实体(Entity)和关系(Relation)的结构..."></textarea>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">导入三元组数据 (CSV / Cypher)</label>
+                      <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-purple-400 transition-colors cursor-pointer">
+                        <UploadCloud className="w-8 h-8 mb-2 text-gray-400" />
+                        <p className="text-sm font-medium text-gray-700">上传结构化数据文件</p>
+                        <p className="text-xs mt-1">支持 CSV, JSONL, Cypher 脚本</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end items-center gap-3">
+                {createErr && <span className="text-sm text-red-600 mr-auto">{createErr}</span>}
+                <button onClick={() => setIsCreateOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                  取消
+                </button>
+                <button
+                  onClick={submitCreateKb}
+                  disabled={creating || !kbName.trim()}
+                  className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-40 ${kbType === 'vector' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                >
+                  {creating ? '创建中…' : '创建并开始索引'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 实时 KG SPARQL 查询面板 */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex items-center gap-2">
+          <Share2 className="w-4 h-4 text-purple-600" />
+          <h2 className="text-lg font-bold text-gray-900">知识图谱实时查询</h2>
+          <span className="text-xs text-gray-500 ml-1">SPARQL → Oxigraph</span>
+        </div>
+        <div className="p-4 space-y-3">
+          <textarea
+            value={sparql}
+            onChange={e => setSparql(e.target.value)}
+            rows={3}
+            className="w-full font-mono text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none"
+          />
+          <button
+            onClick={runKgQuery}
+            disabled={kgLoading || !sparql.trim()}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-medium hover:bg-purple-700 disabled:opacity-40 transition-colors"
+          >
+            <Play className="w-4 h-4" /> {kgLoading ? '查询中…' : '执行查询'}
+          </button>
+          {kgError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{kgError}</div>}
+          {kgResults !== null && (
+            <div className="overflow-auto max-h-64 border border-gray-200 rounded-lg">
+              {kgResults.length === 0
+                ? <div className="text-sm text-gray-500 p-4 text-center">无结果</div>
+                : <pre className="text-xs p-4 font-mono whitespace-pre-wrap">{JSON.stringify(kgResults, null, 2)}</pre>
+              }
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
