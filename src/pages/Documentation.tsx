@@ -33,7 +33,7 @@ export default function Documentation() {
         </div>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">架构与愿景</h1>
-          <p className="text-sm text-gray-500 mt-1">电驴AI AgentOS 架构设计及应用前景</p>
+          <p className="text-sm text-gray-500 mt-1">Wild Agent OS 架构设计及应用前景</p>
         </div>
       </div>
 

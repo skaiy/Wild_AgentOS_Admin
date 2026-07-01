@@ -1,6 +1,6 @@
 /**
- * AgentOS 后端 HTTP/SSE 客户端。
- * 与 Rust 后端 (glidinghorse) src/api/http/mod.rs 的路由一一对应。
+ * Wild Agent OS 后端 HTTP/SSE 客户端。
+ * 与 Rust 后端 (wild-agent-os-core) src/api/http/mod.rs 的路由一一对应。
  */
 import { getBackendBase } from './config';
 
@@ -106,9 +106,16 @@ export interface AgentCreatePayload {
   icon?: string; color?: string;
 }
 export interface AgentChatSource { code: string; label: string; brand: string }
+/** 决策层建议动作：将诊断意图映射到动力层 ActionType。requires_business_data=true 表示
+ *  需车辆/电池等业务数据（工单系统规划中），前端仅弹窗占位。 */
+export interface SuggestedAction {
+  action: string; label: string; icon: string; target: string;
+  requires_business_data: boolean; reason: string; note?: string;
+}
 export interface AgentChatResponse {
   status: string; answer: string; grounded: boolean;
   sources: AgentChatSource[]; retrieved: number; model?: string; warning?: string;
+  suggested_actions?: SuggestedAction[];
 }
 export interface McpServer {
   id: string; name: string; description: string;
@@ -177,10 +184,12 @@ export interface PropertySpec {
   name: string; label: string; prop_type: PropertyType;
   required: boolean; description?: string; enum_values?: string[];
 }
+/** 对象数据归属：knowledge=沉淀于图谱；business=图谱外，未来经 MCP 对接业务库。 */
+export type ObjectKind = 'knowledge' | 'business';
 export interface ObjectType {
   id: string; iri: string; label: string; description: string;
   icon: string; color: string; primary_key: string;
-  title_property: string; properties: PropertySpec[];
+  title_property: string; kind?: ObjectKind; properties: PropertySpec[];
 }
 export interface LinkType {
   id: string; iri: string; label: string; description: string;

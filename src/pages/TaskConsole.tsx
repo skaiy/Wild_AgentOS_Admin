@@ -139,7 +139,7 @@ export default function TaskConsole() {
           onChange={e => setPrompt(e.target.value)}
           rows={3}
           disabled={running}
-          placeholder="输入自然语言任务，AgentOS 将自动规划并执行…"
+          placeholder="输入自然语言任务，Wild Agent OS 将自动规划并执行…"
           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 resize-none"
         />
         <div className="flex items-center gap-3">

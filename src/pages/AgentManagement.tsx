@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, X, Plus, Save, Send, Paperclip, Bot, User, Smartphone, Monitor, MessageCircle, MessageSquare, Link as LinkIcon, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery } from 'lucide-react';
+import { Settings, X, Plus, Save, Send, Paperclip, Bot, User, Smartphone, Monitor, MessageCircle, MessageSquare, Link as LinkIcon, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useHealth, useAgents, useSkills, useMcpServers } from '../api/hooks';
-import { api } from '../api/client';
+import { api, type SuggestedAction } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 
-const ICONS: Record<string, any> = { Bot, User, Smartphone, Monitor, Wrench, Car, Zap, FileText, Activity, Headset, Battery, Shield };
+const ICONS: Record<string, any> = { Bot, User, Smartphone, Monitor, Wrench, Car, Zap, FileText, Activity, Headset, Battery, Shield, MessageCirclePlus, Sparkles };
 const COLORS = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-indigo-500', 'bg-rose-500', 'bg-slate-800'];
 
 
@@ -24,9 +24,11 @@ export default function AgentManagement() {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // 测试对话：基于该 Agent 绑定知识图谱的检索增强问答（POST /api/v1/agents/:id/chat）
-  const [chat, setChat] = useState<{ role: 'user' | 'agent' | 'system'; content: string }[]>([]);
+  const [chat, setChat] = useState<{ role: 'user' | 'agent' | 'system'; content: string; actions?: SuggestedAction[] }[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  // 决策层（Phase 4）：点击建议动作后弹出的占位提示（工单系统规划中）
+  const [pendingAction, setPendingAction] = useState<SuggestedAction | null>(null);
   // G5：知识库绑定弹窗状态
   const [graphBindAgent, setGraphBindAgent] = useState<any>(null);
   const [graphSelection, setGraphSelection] = useState('');
@@ -82,6 +84,7 @@ export default function AgentManagement() {
     setStreaming(false);
     setChat([]);
     setChatInput('');
+    setPendingAction(null);
   }, [testingAgent]);
 
   const sendChat = async () => {
@@ -92,7 +95,7 @@ export default function AgentManagement() {
     setStreaming(true);
     try {
       const res = await api.agentChat(testingAgent.id, text);
-      setChat((c) => [...c, { role: 'agent', content: res.answer || '（无回复）' }]);
+      setChat((c) => [...c, { role: 'agent', content: res.answer || '（无回复）', actions: res.suggested_actions }]);
       if (res.sources && res.sources.length > 0) {
         const src = res.sources.map((s) => s.code + (s.brand ? `·${s.brand}` : '')).join('、');
         setChat((c) => [...c, { role: 'system', content: `引用故障码：${src}（命中 ${res.retrieved} 条）` }]);
@@ -536,14 +539,41 @@ export default function AgentManagement() {
                         <span className="inline-block text-[11px] text-gray-500 bg-gray-100 border border-gray-200 rounded px-2 py-1 font-mono">{msg.content}</span>
                       </div>
                     ) : (
-                      <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm shadow-sm overflow-hidden ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-sm'}`}>
-                        {msg.role === 'user' ? (
-                          <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                        ) : (
-                          <div className="prose prose-sm prose-zinc max-w-none">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {msg.content}
-                            </ReactMarkdown>
+                      <div className={`flex flex-col gap-2 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                        <div className={`px-4 py-2.5 rounded-2xl text-sm shadow-sm overflow-hidden ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-sm'}`}>
+                          {msg.role === 'user' ? (
+                            <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                          ) : (
+                            <div className="prose prose-sm prose-zinc max-w-none">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          )}
+                        </div>
+                        {/* 决策层（Phase 4）：诊断 → 建议动作（一键执行工单等） */}
+                        {msg.role === 'agent' && msg.actions && msg.actions.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[11px] text-gray-400 flex items-center gap-1">
+                              <Sparkles className="w-3 h-3" />建议动作
+                            </span>
+                            {msg.actions.map((act) => {
+                              const ActIcon = ICONS[act.icon] || Sparkles;
+                              return (
+                                <button
+                                  key={act.action}
+                                  onClick={() => setPendingAction(act)}
+                                  title={act.reason}
+                                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                                >
+                                  <ActIcon className="w-3.5 h-3.5" />
+                                  {act.label}
+                                  {act.requires_business_data && (
+                                    <span className="text-[10px] text-amber-600 font-normal">· 规划中</span>
+                                  )}
+                                </button>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -633,6 +663,53 @@ export default function AgentManagement() {
                 <button onClick={() => setGraphBindAgent(null)}
                   className="flex-1 py-2 border border-gray-200 text-sm rounded hover:bg-gray-50 transition-colors">
                   取消
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 决策层（Phase 4）：建议动作执行占位弹窗（工单系统规划中，暂不落库） */}
+      <AnimatePresence>
+        {pendingAction && (
+          <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {(() => {
+                    const ActIcon = ICONS[pendingAction.icon] || Sparkles;
+                    return <ActIcon className="w-5 h-5 text-blue-600" />;
+                  })()}
+                  <h2 className="font-semibold text-gray-900">{pendingAction.label}</h2>
+                </div>
+                <button onClick={() => setPendingAction(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              </div>
+              <div className="text-sm text-gray-600">
+                {pendingAction.reason}
+              </div>
+              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2 font-mono">
+                决策层映射 · ActionType = <span className="text-gray-800">{pendingAction.action}</span>
+                {pendingAction.target && <> · target = <span className="text-gray-800">{pendingAction.target}</span></>}
+              </div>
+              {pendingAction.requires_business_data ? (
+                <div className="text-sm px-3 py-2 rounded border bg-amber-50 border-amber-200 text-amber-700">
+                  ⚠️ {pendingAction.note || '该动作依赖车辆等业务数据'}。工单系统尚未接入（规划中），此处为决策层占位演示，暂不写回。未来业务库经 MCP 对接后即可一键落单。
+                </div>
+              ) : (
+                <div className="text-sm px-3 py-2 rounded border bg-sky-50 border-sky-200 text-sky-700">
+                  该动作可在「本体层 → 动作类型」的执行器中填写参数后写回知识图谱（dry_run 预览 / 真正写回）。
+                </div>
+              )}
+              <div className="flex justify-end pt-1">
+                <button onClick={() => setPendingAction(null)}
+                  className="px-4 py-2 bg-gray-900 text-white text-sm rounded hover:bg-gray-700 transition-colors">
+                  知道了
                 </button>
               </div>
             </motion.div>

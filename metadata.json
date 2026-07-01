@@ -1,5 +1,5 @@
 {
-  "name": "企业级AIAgentOS",
-  "description": "为企业级数字化转型构建的多AIAgent应用和AI智能体底座管理运维监控功能原型。",
+  "name": "wild-agent-os-admin",
+  "description": "Wild Agent OS 企业级 AI 智能体操作系统管理控制台。",
   "requestFramePermissions": []
 }

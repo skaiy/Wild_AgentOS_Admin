@@ -20,7 +20,7 @@ export default function Sidebar({ currentPage, setCurrentPage }: any) {
     <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
       <div className="h-16 flex items-center px-6 border-b border-gray-200">
         <div className="flex items-center gap-2 text-blue-600">
-          <span className="text-xl font-bold tracking-tight">电驴AI AgentOS</span>
+          <span className="text-xl font-bold tracking-tight">Wild Agent OS</span>
         </div>
       </div>
       <nav className="flex-1 py-4 px-3 space-y-1">
