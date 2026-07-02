@@ -2,11 +2,14 @@ import { useState } from 'react';
 import * as Icons from 'lucide-react';
 import {
   Boxes, Network, Zap, Sigma, Package, KeyRound, ArrowRight,
-  Play, Eye, X, Loader2, CheckCircle2, AlertCircle,
+  Play, Eye, X, Loader2, CheckCircle2, AlertCircle, Plus, Pencil, Trash2, Save,
 } from 'lucide-react';
-import { useKnowledgePacks, useOntologyTypes } from '../api/hooks';
+import { useKnowledgePacks, useOntologyTypes, useKbCategories, useKnowledgeBases } from '../api/hooks';
 import { api } from '../api/client';
-import type { ObjectType, ActionType, ActionInvokeResult } from '../api/client';
+import type {
+  ObjectType, ActionType, ActionInvokeResult,
+  KnowledgePack, KnowledgePackCreatePayload, KbCategory, KnowledgeBase,
+} from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import OntologyGraph from '../components/OntologyGraph';
 
@@ -38,10 +41,28 @@ type Tab = 'graph' | 'objects' | 'links' | 'actions' | 'functions';
 
 export default function OntologyLayer() {
   const packs = useKnowledgePacks();
+  const cats = useKbCategories();
+  const bases = useKnowledgeBases();
   const ont = useOntologyTypes();
   const [tab, setTab] = useState<Tab>('graph');
   const [activeObj, setActiveObj] = useState<string | null>(null);
   const [runAction, setRunAction] = useState<ActionType | null>(null);
+  const [editingPack, setEditingPack] = useState<KnowledgePack | 'new' | null>(null);
+  const [packErr, setPackErr] = useState<string | null>(null);
+
+  const catName = (id: string) => cats.data?.categories.find((c) => c.id === id)?.name ?? id;
+  const baseName = (id: string) => bases.data?.bases.find((b) => b.id === id)?.name ?? id;
+
+  const handleDeletePack = async (p: KnowledgePack) => {
+    if (!window.confirm(`确认删除知识包「${p.name}」？此操作不可撤销。`)) return;
+    setPackErr(null);
+    try {
+      await api.deleteKnowledgePack(p.id);
+      packs.refresh();
+    } catch (e: any) {
+      setPackErr(e?.message ?? String(e));
+    }
+  };
 
   const data = ont.data;
   const objectTypes = data?.object_types ?? [];
@@ -76,15 +97,30 @@ export default function OntologyLayer() {
         <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
           <Package className="w-4 h-4 text-emerald-600" />
           <h2 className="text-lg font-bold text-gray-900">知识包 (Knowledge Packs)</h2>
-          <span className="text-xs text-gray-500 ml-1">独立命名图 + 向量命名空间 · Agent 可挂载多包 · 包间隔离</span>
+          <span className="text-xs text-gray-500 ml-1">关联分类 / 图库 / 向量库 · Agent 可挂载多包 · 包间隔离</span>
+          <button
+            onClick={() => { setPackErr(null); setEditingPack('new'); }}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700"
+          >
+            <Plus className="w-4 h-4" /> 新建知识包
+          </button>
         </div>
+        {packErr && (
+          <div className="mx-4 mt-3 flex items-start gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /><span>{packErr}</span>
+          </div>
+        )}
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
           {(packs.data?.knowledge_packs ?? []).length === 0 && (
             <div className="col-span-full text-sm text-gray-400 text-center py-6">
-              {packs.live ? '暂无知识包' : '后端离线，无法加载知识包'}
+              {packs.live ? '暂无知识包，点击右上角「新建知识包」' : '后端离线，无法加载知识包'}
             </div>
           )}
-          {(packs.data?.knowledge_packs ?? []).map((p) => (
+          {(packs.data?.knowledge_packs ?? []).map((p) => {
+            const nCat = p.category_ids?.length ?? 0;
+            const nGraph = p.graph_kb_ids?.length ?? 0;
+            const nVec = p.vector_kb_ids?.length ?? 0;
+            return (
             <div key={p.id} className="border border-gray-200 rounded-xl p-4 hover:shadow-md transition-shadow">
               <div className="flex items-start gap-3">
                 <div className="p-2 rounded-lg shrink-0" style={{ backgroundColor: `${hex(p.color)}1a`, color: hex(p.color) }}>
@@ -94,22 +130,44 @@ export default function OntologyLayer() {
                   <div className="flex items-center gap-2">
                     <h3 className="font-bold text-gray-900 truncate">{p.name}</h3>
                     <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">v{p.version}</span>
+                    {p.builtin && <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">内置</span>}
+                    <div className="ml-auto flex items-center gap-1">
+                      <button onClick={() => { setPackErr(null); setEditingPack(p); }} title="编辑"
+                        className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => handleDeletePack(p)} title="删除"
+                        className="p-1 rounded text-gray-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                    </div>
                   </div>
                   <p className="text-xs text-gray-500 mt-1 line-clamp-2">{p.description}</p>
                   <div className="flex flex-wrap gap-2 mt-3 text-xs">
-                    <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded">对象 {p.stats.object_types}</span>
-                    <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">链接 {p.stats.link_types}</span>
-                    <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded">动作 {p.stats.action_types}</span>
-                    <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded">函数 {p.stats.functions}</span>
+                    <span className="bg-sky-50 text-sky-700 px-2 py-0.5 rounded">分类 {nCat}</span>
+                    <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">图库 {nGraph}</span>
+                    <span className="bg-violet-50 text-violet-700 px-2 py-0.5 rounded">向量库 {nVec}</span>
+                    {p.builtin && (
+                      <>
+                        <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded">对象 {p.stats.object_types}</span>
+                        <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded">链接 {p.stats.link_types}</span>
+                      </>
+                    )}
                   </div>
-                  <div className="mt-3 space-y-1 text-[11px] font-mono text-gray-400">
-                    <div className="truncate" title={p.named_graph}>📊 {p.named_graph}</div>
-                    <div className="truncate" title={p.vector_namespace}>🔢 {p.vector_namespace}</div>
-                  </div>
+                  {(nCat + nGraph + nVec) > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {(p.category_ids ?? []).map((id) => <span key={`c${id}`} className="text-[10px] bg-sky-50 text-sky-600 px-1.5 py-0.5 rounded">{catName(id)}</span>)}
+                      {(p.graph_kb_ids ?? []).map((id) => <span key={`g${id}`} className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded">📊 {baseName(id)}</span>)}
+                      {(p.vector_kb_ids ?? []).map((id) => <span key={`v${id}`} className="text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded">🔢 {baseName(id)}</span>)}
+                    </div>
+                  )}
+                  {(p.named_graph || p.vector_namespace) && (
+                    <div className="mt-3 space-y-1 text-[11px] font-mono text-gray-400">
+                      {p.named_graph && <div className="truncate" title={p.named_graph}>📊 {p.named_graph}</div>}
+                      {p.vector_namespace && <div className="truncate" title={p.vector_namespace}>🔢 {p.vector_namespace}</div>}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -247,6 +305,16 @@ export default function OntologyLayer() {
 
       {runAction && (
         <ActionRunner action={runAction} objLabel={objLabel} onClose={() => setRunAction(null)} />
+      )}
+
+      {editingPack && (
+        <PackEditor
+          pack={editingPack === 'new' ? null : editingPack}
+          categories={cats.data?.categories ?? []}
+          bases={bases.data?.bases ?? []}
+          onClose={() => setEditingPack(null)}
+          onSaved={() => { setEditingPack(null); packs.refresh(); }}
+        />
       )}
     </div>
   );
@@ -438,3 +506,156 @@ function ActionRunner({ action, objLabel, onClose }: {
   );
 }
 
+/** 复选多选列表（分类 / 图库 / 向量库）。顶层定义以避免重挂载导致的输入抖动。 */
+function MultiSelect({ label, items, selected, onToggle, empty }: {
+  label: string;
+  items: { id: string; name: string }[];
+  selected: string[];
+  onToggle: (id: string) => void;
+  empty: string;
+}) {
+  return (
+    <div>
+      <span className="text-xs font-medium text-gray-700">{label}（{selected.length}）</span>
+      <div className="mt-1 border border-gray-200 rounded-lg max-h-32 overflow-y-auto divide-y divide-gray-50">
+        {items.length === 0 && <div className="text-xs text-gray-400 px-3 py-2">{empty}</div>}
+        {items.map((it) => (
+          <label key={it.id} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer">
+            <input type="checkbox" checked={selected.includes(it.id)} onChange={() => onToggle(it.id)} />
+            <span className="truncate">{it.name}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 知识包编辑器：基础信息 + 多选关联（分类/图库/向量库）+ 向量库文本灌入。 */
+function PackEditor({ pack, categories, bases, onClose, onSaved }: {
+  pack: KnowledgePack | null;
+  categories: KbCategory[];
+  bases: KnowledgeBase[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(pack?.name ?? '');
+  const [description, setDescription] = useState(pack?.description ?? '');
+  const [version, setVersion] = useState(pack?.version ?? '1.0.0');
+  const [icon, setIcon] = useState(pack?.icon ?? 'Package');
+  const [color, setColor] = useState(pack?.color ?? 'sky');
+  const [categoryIds, setCategoryIds] = useState<string[]>(pack?.category_ids ?? []);
+  const [graphKbIds, setGraphKbIds] = useState<string[]>(pack?.graph_kb_ids ?? []);
+  const [vectorKbIds, setVectorKbIds] = useState<string[]>(pack?.vector_kb_ids ?? []);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [ingestText, setIngestText] = useState('');
+  const [ingestMsg, setIngestMsg] = useState<string | null>(null);
+  const [ingestBusy, setIngestBusy] = useState(false);
+
+  const graphBases = bases.filter((b) => b.kb_type === 'graph');
+  const vectorBases = bases.filter((b) => b.kb_type === 'vector');
+
+  const toggle = (arr: string[], set: (v: string[]) => void, id: string) =>
+    set(arr.includes(id) ? arr.filter((x) => x !== id) : [...arr, id]);
+
+  const save = async () => {
+    if (!name.trim()) { setError('请填写知识包名称'); return; }
+    setBusy(true); setError(null);
+    const payload: KnowledgePackCreatePayload = {
+      name: name.trim(),
+      description: description.trim() || undefined,
+      version: version.trim() || undefined,
+      icon: icon.trim() || undefined,
+      color: color.trim() || undefined,
+      category_ids: categoryIds,
+      graph_kb_ids: graphKbIds,
+      vector_kb_ids: vectorKbIds,
+    };
+    try {
+      if (pack) await api.updateKnowledgePack(pack.id, payload);
+      else await api.createKnowledgePack(payload);
+      onSaved();
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+    } finally { setBusy(false); }
+  };
+
+  const doIngest = async () => {
+    const text = ingestText.trim();
+    if (!text) { setIngestMsg('请输入要灌入的文本'); return; }
+    if (vectorKbIds.length === 0) { setIngestMsg('请先勾选至少一个向量库'); return; }
+    setIngestBusy(true); setIngestMsg(null);
+    try {
+      let total = 0;
+      for (const id of vectorKbIds) {
+        const r = await api.ingestKnowledgeBase(id, { text });
+        total += r.chunks;
+      }
+      setIngestMsg(`已灌入 ${total} 个切片到 ${vectorKbIds.length} 个向量库`);
+      setIngestText('');
+    } catch (e: any) {
+      setIngestMsg(e?.message ?? String(e));
+    } finally { setIngestBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-200">
+          <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600"><Package className="w-4 h-4" /></div>
+          <h3 className="font-bold text-gray-900">{pack ? '编辑知识包' : '新建知识包'}</h3>
+          {pack?.builtin && <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">内置</span>}
+          <button onClick={onClose} className="ml-auto p-1 rounded-md text-gray-400 hover:bg-gray-100"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-xs font-medium text-gray-700">名称 *</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-700">描述</span>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            <label className="block"><span className="text-xs font-medium text-gray-700">版本</span>
+              <input value={version} onChange={(e) => setVersion(e.target.value)} className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500" /></label>
+            <label className="block"><span className="text-xs font-medium text-gray-700">图标</span>
+              <input value={icon} onChange={(e) => setIcon(e.target.value)} className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500" /></label>
+            <label className="block"><span className="text-xs font-medium text-gray-700">颜色</span>
+              <input value={color} onChange={(e) => setColor(e.target.value)} className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-emerald-500" /></label>
+          </div>
+
+          <MultiSelect label="关联知识库分类" items={categories.map((c) => ({ id: c.id, name: c.name }))} selected={categoryIds} onToggle={(id) => toggle(categoryIds, setCategoryIds, id)} empty="暂无分类（在「记忆系统」中创建）" />
+          <MultiSelect label="关联图知识库" items={graphBases.map((b) => ({ id: b.id, name: b.name }))} selected={graphKbIds} onToggle={(id) => toggle(graphKbIds, setGraphKbIds, id)} empty="暂无图知识库" />
+          <MultiSelect label="关联向量知识库" items={vectorBases.map((b) => ({ id: b.id, name: b.name }))} selected={vectorKbIds} onToggle={(id) => toggle(vectorKbIds, setVectorKbIds, id)} empty="暂无向量知识库" />
+
+          {vectorKbIds.length > 0 && (
+            <div className="border border-violet-100 bg-violet-50/40 rounded-lg p-3 space-y-2">
+              <span className="text-xs font-medium text-violet-700">向选中向量库灌入文本（分块 → embedding → 入库，供运行时检索）</span>
+              <textarea value={ingestText} onChange={(e) => setIngestText(e.target.value)} rows={3} placeholder="粘贴文档 / FAQ 文本…" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-violet-500" />
+              <div className="flex items-center gap-2">
+                <button onClick={doIngest} disabled={ingestBusy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50">
+                  {ingestBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} 灌入
+                </button>
+                {ingestMsg && <span className="text-xs text-gray-600">{ingestMsg}</span>}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-start gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /><span>{error}</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 bg-gray-50/60">
+          <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 bg-white hover:bg-gray-100">取消</button>
+          <button onClick={save} disabled={busy} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} 保存
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

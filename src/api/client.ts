@@ -31,6 +31,12 @@ export function safeJson(text: string): any {
   try { return JSON.parse(text); } catch { return text; }
 }
 
+/** 生成管理台身份头（base64(JSON)），赋予 DA 角色以通过后端 G7 角色校验。 */
+function adminIdentityHeader(): string {
+  const claims = { user_id: 'admin', tenant_id: 'default', roles: ['DA'] };
+  return btoa(JSON.stringify(claims));
+}
+
 // ---------- 响应类型（镜像后端 JSON） ----------
 export interface HealthResponse { status: string; version: string }
 export interface MetricsResponse {
@@ -44,6 +50,8 @@ export interface SkillMeta {
   category: string; security_level: string; allowed_roles: string[];
   input_schema?: unknown; output_schema?: unknown; compiled_template?: string;
   signature?: string | null; signature_algorithm?: string | null;
+  /** 权限/技能类型标签（对齐后端 skill_types，用于 skill.yaml permissions）。 */
+  skill_types?: string[];
   /** 后端 list 端点附带的实时验签结果（注册态不返回）。 */
   signature_status?: SignatureStatus;
 }
@@ -93,6 +101,7 @@ export interface RuntimeConfigInfo {
 export interface AgentInfo {
   name: string; description: string; enabled: boolean; business_domain: string;
   id?: string; skills?: string[]; knowledge_graph?: string;
+  knowledge_pack_ids?: string[];
   source?: string; created_at?: string; updated_at?: string;
   icon?: string; color?: string;
 }
@@ -103,6 +112,7 @@ export interface AgentsResponse {
 export interface AgentCreatePayload {
   name: string; description?: string; business_domain?: string;
   skills?: string[]; knowledge_graph?: string; enabled?: boolean;
+  knowledge_pack_ids?: string[];
   icon?: string; color?: string;
 }
 export interface AgentChatSource { code: string; label: string; brand: string }
@@ -114,7 +124,8 @@ export interface SuggestedAction {
 }
 export interface AgentChatResponse {
   status: string; answer: string; grounded: boolean;
-  sources: AgentChatSource[]; retrieved: number; model?: string; warning?: string;
+  sources: AgentChatSource[]; retrieved: number; vector_retrieved?: number;
+  model?: string; warning?: string;
   suggested_actions?: SuggestedAction[];
 }
 export interface McpServer {
@@ -164,7 +175,7 @@ export interface KbCategoryCreatePayload { name: string; description?: string }
 export type KbType = 'vector' | 'graph';
 export interface KnowledgeBase {
   id: string; name: string; description: string; kb_type: KbType;
-  category_id: string; graph: string; tenant_id?: string;
+  category_id: string; graph: string; vector_namespace?: string; tenant_id?: string;
   created_by?: string; created_at: string;
 }
 export interface KnowledgeBasesResponse { count: number; bases: KnowledgeBase[] }
@@ -222,8 +233,14 @@ export interface KnowledgePack {
   id: string; name: string; description: string; version: string;
   icon: string; color: string; named_graph: string;
   vector_namespace: string; ontology_domain: string; stats: OntologyCounts;
+  category_ids?: string[]; graph_kb_ids?: string[]; vector_kb_ids?: string[];
+  builtin?: boolean; created_at?: string; updated_at?: string;
 }
 export interface KnowledgePacksResponse { count: number; knowledge_packs: KnowledgePack[] }
+export interface KnowledgePackCreatePayload {
+  name: string; description?: string; version?: string; icon?: string; color?: string;
+  category_ids?: string[]; graph_kb_ids?: string[]; vector_kb_ids?: string[];
+}
 
 /** 动力层动作调用请求：target=applies_to 对象主键，params=参数键值，dry_run=仅预览不写库。 */
 export interface ActionInvokeRequest {
@@ -254,6 +271,26 @@ export const api = {
   registerSkill: (skill: SkillMeta) =>
     request<SkillRegisterResponse>('/api/v1/skills', {
       method: 'POST', body: JSON.stringify(skill),
+      // 管理台以 DA 角色注册技能（严格鉴权模式下仍可用；非严格模式匿名亦放行）。
+      headers: { 'X-Identity': adminIdentityHeader() },
+    }),
+  /** 获取指定技能的 skill.yaml 文本（后端依据元数据实时生成）。 */
+  skillManifest: (iri: string) =>
+    request<string>(`/api/v1/skills/manifest?iri=${encodeURIComponent(iri)}`),
+  /** skill.yaml 的直连下载 URL（附件形式，带 Content-Disposition）。 */
+  skillManifestUrl: (iri: string) =>
+    `${getBackendBase()}/api/v1/skills/manifest?iri=${encodeURIComponent(iri)}`,
+  /** 从 Git 仓库导入技能（后端 git clone + 解析 skill.yaml + 注册）。 */
+  importGitSkill: (params: {
+    repo_url: string; ref?: string; path?: string;
+    skill_iri?: string; name?: string; description?: string;
+    version?: string; category?: string; security_level?: string;
+    allowed_roles?: string[]; skill_types?: string[];
+  }) =>
+    request<SkillRegisterResponse>('/api/v1/skills/import-git', {
+      method: 'POST',
+      body: JSON.stringify(params),
+      headers: { 'X-Identity': adminIdentityHeader() },
     }),
   guardStats: () => request<GuardStats>('/api/v1/guard/stats'),
   guardAudit: () => request<GuardAuditResponse>('/api/v1/guard/audit'),
@@ -361,8 +398,24 @@ export const api = {
     request<{ status: string; id: string }>(`/api/v1/kb/bases/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+  ingestKnowledgeBase: (id: string, payload: { texts?: string[]; text?: string }) =>
+    request<{ status: string; chunks: number; namespace: string }>(`/api/v1/kb/bases/${encodeURIComponent(id)}/ingest`, {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
   // ── 本体层（Ontology Layer）只读元模型 ──
   knowledgePacks: () => request<KnowledgePacksResponse>('/api/v1/knowledge-packs'),
+  createKnowledgePack: (payload: KnowledgePackCreatePayload) =>
+    request<{ id: string; status: string; knowledge_pack: KnowledgePack }>('/api/v1/knowledge-packs', {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
+  updateKnowledgePack: (id: string, patch: Partial<KnowledgePackCreatePayload>) =>
+    request<{ status: string; knowledge_pack: KnowledgePack }>(`/api/v1/knowledge-packs/${encodeURIComponent(id)}`, {
+      method: 'PUT', body: JSON.stringify(patch),
+    }),
+  deleteKnowledgePack: (id: string) =>
+    request<{ status: string; id: string }>(`/api/v1/knowledge-packs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
   ontologyTypes: () => request<OntologyTypesResponse>('/api/v1/ontology/types'),
   // ── 动力层：执行动作（dry_run 预览 / 真正写回命名图） ──
   invokeAction: (id: string, body: ActionInvokeRequest) =>

@@ -1,6 +1,16 @@
-import { Bell, Search } from 'lucide-react';
+import { Bell, Search, LogOut } from 'lucide-react';
+import { logout } from '../auth';
 
-export default function Header() {
+interface HeaderProps {
+  onLogout?: () => void;
+}
+
+export default function Header({ onLogout }: HeaderProps) {
+  const handleLogout = () => {
+    logout();
+    onLogout?.();
+  };
+
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6">
       <div className="flex items-center bg-gray-100 rounded-lg px-3 py-2 w-96">
@@ -24,6 +34,14 @@ export default function Header() {
             <p className="font-medium text-gray-700">系统管理员</p>
             <p className="text-xs text-gray-500">diaoguoliang@gmail.com</p>
           </div>
+          <button
+            onClick={handleLogout}
+            title="退出登录"
+            className="ml-2 flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          >
+            <LogOut className="w-4 h-4" />
+            退出
+          </button>
         </div>
       </div>
     </header>

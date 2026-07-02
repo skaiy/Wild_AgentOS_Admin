@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Settings, X, Plus, Save, Send, Paperclip, Bot, User, Smartphone, Monitor, MessageCircle, MessageSquare, Link as LinkIcon, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useHealth, useAgents, useSkills, useMcpServers } from '../api/hooks';
+import { useHealth, useAgents, useSkills, useMcpServers, useRuntimeConfig, useKnowledgePacks } from '../api/hooks';
 import { api, type SuggestedAction } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 
@@ -20,7 +20,7 @@ export default function AgentManagement() {
   const [selectedAgent, setSelectedAgent] = useState<any>(null);
   const [testingAgent, setTestingAgent] = useState<any>(null);
   // skills 改为 string[] 存储选中的 skill_iri 列表
-  const [form, setForm] = useState({ name: '', description: '', business_domain: '', skills: [] as string[], knowledge_graph: '', icon: 'Bot', color: 'bg-blue-500' });
+  const [form, setForm] = useState({ name: '', description: '', business_domain: '', skills: [] as string[], knowledge_graph: '', knowledge_pack_ids: [] as string[], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // 测试对话：基于该 Agent 绑定知识图谱的检索增强问答（POST /api/v1/agents/:id/chat）
@@ -40,7 +40,7 @@ export default function AgentManagement() {
     setSelectedAgent(agent);
     setActionError(null);
     if (type === 'create') {
-      setForm({ name: '', description: '', business_domain: '', skills: [], knowledge_graph: '', icon: 'Bot', color: 'bg-blue-500' });
+      setForm({ name: '', description: '', business_domain: '', skills: [], knowledge_graph: '', knowledge_pack_ids: [], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
     } else if (type === 'edit') {
       setForm({
         name: agent?.name ?? '',
@@ -48,8 +48,11 @@ export default function AgentManagement() {
         business_domain: agent?.business_domain ?? '',
         skills: Array.isArray(agent?.skills) ? agent.skills : [],
         knowledge_graph: agent?.knowledge_graph ?? '',
+        knowledge_pack_ids: Array.isArray(agent?.knowledge_pack_ids) ? agent.knowledge_pack_ids : [],
         icon: agent?.icon ?? 'Bot',
         color: agent?.color ?? 'bg-blue-500',
+        version: agent?.version ?? 'v1.0.0',
+        model: agent?.model ?? '',
       });
     }
     setModalType(type);
@@ -62,6 +65,15 @@ export default function AgentManagement() {
     }));
   };
 
+  const togglePack = (id: string) => {
+    setForm(f => ({
+      ...f,
+      knowledge_pack_ids: f.knowledge_pack_ids.includes(id)
+        ? f.knowledge_pack_ids.filter(x => x !== id)
+        : [...f.knowledge_pack_ids, id],
+    }));
+  };
+
   const closeModal = () => {
     setModalType(null);
     setSelectedAgent(null);
@@ -71,6 +83,13 @@ export default function AgentManagement() {
   const agentsState = useAgents();
   const skillsState = useSkills();
   const mcpState = useMcpServers();
+  const cfgState = useRuntimeConfig();
+  const packsState = useKnowledgePacks();
+  // 基础模型下拉：来自网关实际配置（默认模型 + model_mapping 别名），不再硬编码
+  const gw = cfgState.data?.gateway;
+  const availableModels = Array.from(
+    new Set([gw?.default_model, ...Object.keys(gw?.model_mapping ?? {})].filter((m): m is string => !!m)),
+  );
   const allAgents = agentsState.data?.agents ?? [];
   const batchAgents = allAgents.filter((a) => a.source !== 'user');
   const userAgents = allAgents.filter((a) => a.source === 'user');
@@ -102,6 +121,9 @@ export default function AgentManagement() {
       } else if (!res.grounded) {
         setChat((c) => [...c, { role: 'system', content: '未命中知识图谱记录，回答基于通用知识' }]);
       }
+      if (res.vector_retrieved && res.vector_retrieved > 0) {
+        setChat((c) => [...c, { role: 'system', content: `向量知识库命中 ${res.vector_retrieved} 条并已注入上下文` }]);
+      }
       if (res.warning) {
         setChat((c) => [...c, { role: 'system', content: res.warning }]);
       }
@@ -122,6 +144,7 @@ export default function AgentManagement() {
         description: form.description.trim() || undefined,
         business_domain: form.business_domain.trim() || undefined,
         knowledge_graph: form.knowledge_graph.trim() || undefined,
+        knowledge_pack_ids: form.knowledge_pack_ids,
         skills: form.skills,
         icon: form.icon,
         color: form.color,
@@ -214,7 +237,7 @@ export default function AgentManagement() {
         <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Bot className="w-4 h-4 text-emerald-600" />
-            <span className="text-sm font-semibold text-emerald-800">用户态智能体（前台创建 · 已落库）</span>
+            <span className="text-sm font-semibold text-emerald-800">用户态智能体</span>
             <span className="text-xs bg-emerald-600 text-white rounded-full px-2 py-0.5">{userAgents.length}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -352,19 +375,36 @@ export default function AgentManagement() {
                       <input type="text" value={form.business_domain} onChange={(e) => setForm({ ...form, business_domain: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="例如：battery_repair" />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">关联知识图谱 (named graph)</label>
-                      <input type="text" value={form.knowledge_graph} onChange={(e) => setForm({ ...form, knowledge_graph: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="iri://kg/battery_repair" />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">关联知识包 (Knowledge Packs)</label>
+                      <div className="border border-gray-300 rounded-lg max-h-40 overflow-y-auto divide-y divide-gray-50">
+                        {(packsState.data?.knowledge_packs ?? []).length === 0 && (
+                          <div className="text-xs text-gray-400 px-3 py-2">暂无知识包，请先在「本体层」创建</div>
+                        )}
+                        {(packsState.data?.knowledge_packs ?? []).map((p) => (
+                          <label key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" checked={form.knowledge_pack_ids.includes(p.id)} onChange={() => togglePack(p.id)} />
+                            <span className="font-medium text-gray-800 truncate">{p.name}</span>
+                            <span className="text-[11px] text-gray-400">v{p.version}</span>
+                            <span className="ml-auto text-[11px] text-gray-400">分类{p.category_ids?.length ?? 0}·图{p.graph_kb_ids?.length ?? 0}·向量{p.vector_kb_ids?.length ?? 0}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">Agent 运行时将检索所选知识包关联的图谱与向量库并注入回答。</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">版本号</label>
-                      <input type="text" defaultValue={selectedAgent?.version || 'v1.0.0'} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                      <input type="text" value={form.version} onChange={(e) => setForm({ ...form, version: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="v1.0.0" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">基础模型 (LLM)</label>
-                      <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-                        <option>Claude 3.5 Sonnet (推荐)</option>
-                        <option>GPT-4o</option>
-                        <option>Qwen2.5-72B (私有部署)</option>
+                      <select value={form.model || (availableModels[0] ?? '')} onChange={(e) => setForm({ ...form, model: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                        {availableModels.length > 0 ? (
+                          availableModels.map((m) => (
+                            <option key={m} value={m}>{m === gw?.default_model ? `${m}（网关默认）` : m}</option>
+                          ))
+                        ) : (
+                          <option value="">（网关未配置模型）</option>
+                        )}
                       </select>
                     </div>
                     <div>

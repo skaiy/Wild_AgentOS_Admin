@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Save, Server, Shield, Users, Key, Database, Plus, Trash2, AlertTriangle, CheckCircle2, Copy, Upload } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Save, Server, Shield, Users, Key, Database, Plus, Trash2, AlertTriangle, CheckCircle2, Copy, Upload, RefreshCw } from 'lucide-react';
 import { loadConfig, saveConfig, toEnvSnippet, toYamlSnippet, type RuntimeConfig } from '../api/config';
 import { useRuntimeConfig } from '../api/hooks';
 import { api } from '../api/client';
@@ -12,10 +12,38 @@ export default function Settings() {
   const [pushing, setPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState<string | null>(null);
   const backend = useRuntimeConfig();
+  // 标记：是否已从后端完成首次加载（避免 30s 轮询覆盖用户编辑中的内容）
+  const hasLoadedFromBackend = useRef(false);
 
   const g = cfg.gateway;
   const patchGateway = (p: Partial<RuntimeConfig['gateway']>) =>
     setCfg((prev) => ({ ...prev, gateway: { ...prev.gateway, ...p } }));
+
+  /** 从后端实际生效配置同步到表单（api_key 不回填，只显示是否已配置）。*/
+  const loadFromBackend = () => {
+    const bg = backend.data?.gateway;
+    if (!bg) return;
+    setCfg((prev) => ({
+      ...prev,
+      gateway: {
+        ...prev.gateway,
+        baseUrl: bg.base_url ?? '',
+        defaultModel: bg.default_model ?? '',
+        timeoutSeconds: bg.timeout_seconds ?? 60,
+        maxRetries: bg.max_retries ?? 3,
+        modelMapping: bg.model_mapping ?? {},
+        // api_key 始终保留用户当前输入（不从后端覆盖）
+      },
+    }));
+  };
+
+  // 首次从后端拿到数据时，自动同步到表单
+  useEffect(() => {
+    if (!backend.data || hasLoadedFromBackend.current) return;
+    hasLoadedFromBackend.current = true;
+    loadFromBackend();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backend.data]);
 
   /** 保存到 localStorage（本地持久化）。 */
   const handleSave = () => {
@@ -24,33 +52,45 @@ export default function Settings() {
     setTimeout(() => setSaved(false), 2500);
   };
 
-  /** 推送到后端并持久化生效。 */
+  /** 推送到后端并持久化生效（运行时热更新，无需重启）。 */
   const handlePushToBackend = async () => {
     if (!backend.live) return;
     setPushing(true); setPushMsg(null);
     try {
-      await api.updateConfig({
-        gateway: {
-          base_url: g.baseUrl,
-          api_key: g.apiKey,
-          default_model: g.defaultModel,
-          timeout_seconds: g.timeoutSeconds,
-          max_retries: g.maxRetries,
-          model_mapping: g.modelMapping,
-        },
-      });
-      backend.refresh();
-      setPushMsg('已成功推送到后端并完成持久化存储');
+      // 仅在用户明确输入了新 Key 时才更新 api_key，留空则保留后端原值
+      const gatewayPatch: Record<string, unknown> = {
+        base_url: g.baseUrl,
+        default_model: g.defaultModel,
+        timeout_seconds: g.timeoutSeconds,
+        max_retries: g.maxRetries,
+        model_mapping: g.modelMapping,
+      };
+      if (g.apiKey.trim()) {
+        gatewayPatch['api_key'] = g.apiKey.trim();
+      }
+      await api.updateConfig({ gateway: gatewayPatch });
+      // 重置标记，下次刷新结果后回写到表单
+      hasLoadedFromBackend.current = false;
+      await backend.refresh();
+      setPushMsg('✅ 已推送到后端，运行时立即生效并持久化（重启后仍保留）');
     } catch (e: any) {
-      setPushMsg(`推送失败：${e?.message ?? String(e)}`);
+      setPushMsg(`❌ 推送失败：${e?.message ?? String(e)}`);
     } finally {
       setPushing(false);
-      setTimeout(() => setPushMsg(null), 4000);
+      setTimeout(() => setPushMsg(null), 5000);
     }
   };
 
   const envSnippet = useMemo(() => toEnvSnippet(g), [g]);
   const yamlSnippet = useMemo(() => toYamlSnippet(g), [g]);
+  // 路由映射展示：优先后端实际生效配置，其次本地编辑值
+  const routeModel = useMemo(
+    () => ({
+      default_model: backend.data?.gateway.default_model ?? g.defaultModel,
+      model_mapping: backend.data?.gateway.model_mapping ?? g.modelMapping,
+    }),
+    [backend.data, g.defaultModel, g.modelMapping],
+  );
   const copy = (text: string) => navigator.clipboard?.writeText(text).catch(() => {});
 
   return (
@@ -100,49 +140,88 @@ export default function Settings() {
                 </div>
                 <div className="flex items-center gap-2">
                   {backend.live && (
-                    <button
-                      onClick={handlePushToBackend}
-                      disabled={pushing}
-                      className="border border-blue-300 text-blue-700 px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-50 disabled:opacity-40 flex items-center gap-2"
-                    >
-                      <Upload className="w-4 h-4" />
-                      {pushing ? '推送中…' : '推送到后端'}
-                    </button>
+                    <>
+                      <button
+                        onClick={() => { hasLoadedFromBackend.current = false; backend.refresh(); }}
+                        className="border border-gray-300 text-gray-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-2"
+                        title="从后端重新加载当前生效配置到表单"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        从后端刷新
+                      </button>
+                      <button
+                        onClick={handlePushToBackend}
+                        disabled={pushing}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 flex items-center gap-2"
+                      >
+                        <Upload className="w-4 h-4" />
+                        {pushing ? '推送中…' : '推送到后端（热更新）'}
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={handleSave}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2"
+                    className="border border-gray-300 text-gray-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-2"
                   >
-                    {saved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                    {saved ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <Save className="w-4 h-4" />}
                     {saved ? '已保存' : '本地保存'}
                   </button>
                 </div>
               </div>
+
               {pushMsg && (
-                <div className={`text-sm px-3 py-2 rounded-lg ${pushMsg.startsWith('推送失败') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                <div className={`text-sm px-4 py-3 rounded-lg font-medium ${pushMsg.startsWith('❌') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
                   {pushMsg}
                 </div>
               )}
 
-              {/* 外部 LLM 网关：开放可配置（持久化到浏览器，并生成可应用到后端的配置片段） */}
+              {/* 后端当前生效配置面板（只读反显） */}
+              {backend.live && backend.data && (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">后端当前生效配置（只读）</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                    <div>
+                      <p className="text-xs text-gray-400">网关 URL</p>
+                      <p className="font-mono text-gray-800 text-xs break-all">{backend.data.gateway.base_url || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">默认模型</p>
+                      <p className="font-mono text-gray-800 text-xs">{backend.data.gateway.default_model || '—'}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">超时 / 重试</p>
+                      <p className="font-mono text-gray-800 text-xs">{backend.data.gateway.timeout_seconds}s / {backend.data.gateway.max_retries}次</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">API Key</p>
+                      <p className="text-xs">
+                        {backend.data.gateway.api_key_configured
+                          ? <span className="text-green-600 font-medium flex items-center gap-1"><CheckCircle2 className="w-3 h-3 inline" /> 已配置</span>
+                          : <span className="text-amber-600 font-medium flex items-center gap-1"><AlertTriangle className="w-3 h-3 inline" /> 未配置</span>}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 编辑表单 */}
               <div className="space-y-4">
                 <div className="bg-blue-50 text-blue-800 text-sm p-4 rounded-lg border border-blue-100">
-                  统一的 LLM Gateway 对接多个大模型服务提供商，实现按场景的模型路由、成本控制和故障切换。
-                  外部 LLM 接口保持开放可配置：以下配置保存在浏览器并用于前端调用，同时生成可落地到后端的 .env / config.yaml 片段。
+                  修改下方字段后点击「推送到后端（热更新）」即可运行时生效，无需重启服务。配置同时持久化到 <code className="font-mono bg-blue-100 px-1 rounded">data/config_override.json</code>，重启后仍保留。
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">后端 Base URL（留空走 Vite 代理）</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">管理后台连接地址（留空走 Nginx 代理）</label>
                     <input
                       value={cfg.backendBaseUrl}
                       onChange={(e) => setCfg((p) => ({ ...p, backendBaseUrl: e.target.value }))}
-                      placeholder="http://localhost:8080"
+                      placeholder="留空（当前已通过 Nginx 反代连接后端）"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">网关 Base URL</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">LLM 网关 Base URL</label>
                     <input
                       value={g.baseUrl}
                       onChange={(e) => patchGateway({ baseUrl: e.target.value })}
@@ -151,12 +230,19 @@ export default function Settings() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+                      API Key
+                      {backend.data?.gateway.api_key_configured && (
+                        <span className="text-xs text-green-600 font-normal flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> 后端已配置（留空则保留原值）
+                        </span>
+                      )}
+                    </label>
                     <input
                       type="password"
                       value={g.apiKey}
                       onChange={(e) => patchGateway({ apiKey: e.target.value })}
-                      placeholder="sk-..."
+                      placeholder={backend.data?.gateway.api_key_configured ? '（保留后端原值，如需更换请输入新 Key）' : 'sk-...'}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     />
                   </div>
@@ -191,14 +277,6 @@ export default function Settings() {
                   </div>
                 </div>
 
-                {backend.live && backend.data && (
-                  <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3">
-                    后端当前生效：<span className="font-mono text-gray-700">{backend.data.gateway.base_url}</span> ·
-                    模型 <span className="font-mono text-gray-700">{backend.data.gateway.default_model}</span> ·
-                    重试 {backend.data.gateway.max_retries} · 超时 {backend.data.gateway.timeout_seconds}s
-                  </div>
-                )}
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="border border-gray-200 rounded-lg overflow-hidden">
                     <div className="flex items-center justify-between bg-gray-50 px-3 py-2 border-b border-gray-200">
@@ -220,76 +298,40 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <h3 className="text-md font-bold text-gray-900 border-l-4 border-blue-500 pl-2 pt-2">按场景模型路由</h3>
+                <h3 className="text-md font-bold text-gray-900 border-l-4 border-blue-500 pl-2 pt-2">模型路由映射（model_mapping）</h3>
+                <p className="text-xs text-gray-500 -mt-2">
+                  网关按「请求模型名 → 实际部署模型」进行路由。未命中映射的请求统一走默认模型。以下为后端当前实际生效的配置。
+                </p>
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-gray-50 text-gray-700 font-medium border-b border-gray-200">
                       <tr>
-                        <th className="px-4 py-3">使用场景</th>
-                        <th className="px-4 py-3">首选模型</th>
-                        <th className="px-4 py-3">备用模型</th>
-                        <th className="px-4 py-3">切换条件</th>
+                        <th className="px-4 py-3">请求模型名</th>
+                        <th className="px-4 py-3">实际路由到</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 text-gray-600">
                       <tr>
-                        <td className="px-4 py-3 font-medium text-gray-900">CoT 复杂推理</td>
-                        <td className="px-4 py-3">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm w-full outline-none focus:border-blue-500">
-                            <option>Claude 3.5 Sonnet</option>
-                            <option>GPT-4o</option>
-                          </select>
+                        <td className="px-4 py-3 font-medium text-gray-900">
+                          默认（未命中映射）
                         </td>
-                        <td className="px-4 py-3">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm w-full outline-none focus:border-blue-500">
-                            <option>Qwen2.5-72B (私有)</option>
-                          </select>
+                        <td className="px-4 py-3 font-mono">
+                          {routeModel.default_model || '—'}
                         </td>
-                        <td className="px-4 py-3">API 故障或延迟 &gt; 10s</td>
                       </tr>
-                      <tr>
-                        <td className="px-4 py-3 font-medium text-gray-900">检测报告多模态</td>
-                        <td className="px-4 py-3">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm w-full outline-none focus:border-blue-500">
-                            <option>GPT-4o Vision</option>
-                            <option>Claude 3.5 Sonnet</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm w-full outline-none focus:border-blue-500">
-                            <option>Qwen-VL-72B</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">API 故障或成本超阈值</td>
-                      </tr>
-                      <tr>
-                        <td className="px-4 py-3 font-medium text-gray-900">知识问答 (RAG)</td>
-                        <td className="px-4 py-3">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm w-full outline-none focus:border-blue-500">
-                            <option>Qwen2.5-14B (私有)</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm w-full outline-none focus:border-blue-500">
-                            <option>通义千问 API</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">私有服务不可用时</td>
-                      </tr>
-                      <tr>
-                        <td className="px-4 py-3 font-medium text-gray-900">代码生成 (沙箱)</td>
-                        <td className="px-4 py-3">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm w-full outline-none focus:border-blue-500">
-                            <option>DeepSeek-Coder-V2</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">
-                          <select className="border border-gray-300 rounded px-2 py-1 text-sm w-full outline-none focus:border-blue-500">
-                            <option>Claude 3.5 Haiku</option>
-                          </select>
-                        </td>
-                        <td className="px-4 py-3">本地模型负载 &gt; 90%</td>
-                      </tr>
+                      {Object.entries(routeModel.model_mapping).map(([alias, target]) => (
+                        <tr key={alias}>
+                          <td className="px-4 py-3 font-mono text-gray-900">{alias}</td>
+                          <td className="px-4 py-3 font-mono">{target}</td>
+                        </tr>
+                      ))}
+                      {Object.keys(routeModel.model_mapping).length === 0 && (
+                        <tr>
+                          <td className="px-4 py-3 text-gray-400" colSpan={2}>
+                            未配置额外映射，所有请求均使用默认模型。
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>

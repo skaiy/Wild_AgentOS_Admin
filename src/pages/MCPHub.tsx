@@ -18,16 +18,20 @@ export default function MCPHub() {
   const [regDesc, setRegDesc] = useState('');
   const [regProto, setRegProto] = useState('sse');
   const [saving, setSaving] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
 
   const handleRegister = async () => {
     if (!regName.trim() || !regEndpoint.trim()) return;
     setSaving(true);
+    setRegError(null);
     try {
       await api.registerMcpServer(regName, regEndpoint, regDesc, regProto);
       mcpState.refresh();
       setIsRegisterOpen(false);
       setRegName(''); setRegEndpoint(''); setRegDesc('');
-    } catch { /* ignore */ } finally { setSaving(false); }
+    } catch (err: any) {
+      setRegError(err?.message ?? '注册失败，请检查端点地址或后端日志');
+    } finally { setSaving(false); }
   };
 
   return (
@@ -184,6 +188,12 @@ export default function MCPHub() {
                   <Activity className="w-4 h-4 shrink-0" />
                   注册后服务器将添加到实时注册表（运行期内存，重启后清空）。
                 </div>
+                {regError && (
+                  <div className="flex items-center gap-2 text-sm bg-red-50 text-red-700 p-3 rounded-lg border border-red-200">
+                    <X className="w-4 h-4 shrink-0" />
+                    {regError}
+                  </div>
+                )}
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">

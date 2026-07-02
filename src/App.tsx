@@ -18,6 +18,8 @@ import Documentation from './pages/Documentation';
 import TaskConsole from './pages/TaskConsole';
 import PromptManagement from './pages/PromptManagement';
 import OntologyLayer from './pages/OntologyLayer';
+import Login from './pages/Login';
+import { isAuthenticated } from './auth';
 
 /** 从 URL hash 解析初始页面（支持深链与截图脚本直达各页）。 */
 function pageFromHash(): string {
@@ -26,6 +28,7 @@ function pageFromHash(): string {
 }
 
 export default function App() {
+  const [authed, setAuthed] = useState(isAuthenticated);
   const [currentPage, setCurrentPageState] = useState(pageFromHash);
 
   // 切换页面时同步写入 hash，便于分享与直达。
@@ -42,6 +45,10 @@ export default function App() {
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
+
+  if (!authed) {
+    return <Login onSuccess={() => setAuthed(true)} />;
+  }
 
   const renderPage = () => {
     switch (currentPage) {
@@ -65,7 +72,7 @@ export default function App() {
     <div className="flex h-screen bg-gray-50 text-gray-900 font-sans">
       <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
+        <Header onLogout={() => setAuthed(false)} />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
           {renderPage()}
         </main>
