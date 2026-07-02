@@ -15,6 +15,7 @@ import MCPHub from './pages/MCPHub';
 import Security from './pages/Security';
 import Settings from './pages/Settings';
 import Documentation from './pages/Documentation';
+import OperationsManual from './pages/OperationsManual';
 import TaskConsole from './pages/TaskConsole';
 import PromptManagement from './pages/PromptManagement';
 import OntologyLayer from './pages/OntologyLayer';
@@ -62,6 +63,7 @@ export default function App() {
       case 'security': return <Security />;
       case 'settings': return <Settings />;
       case 'documentation': return <Documentation />;
+      case 'manual': return <OperationsManual />;
       case 'console': return <TaskConsole />;
       case 'prompts': return <PromptManagement />;
       default: return <Overview />;
