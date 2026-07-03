@@ -258,6 +258,42 @@ export interface ActionInvokeResult {
   result: Record<string, unknown>;
 }
 
+// ── 方案A 平台运维态：L2 黑板浏览器 + 批处理运维台 ──
+export interface BlackboardTask {
+  task_iri: string; status: string; node_count: number;
+  parent: string | null; children: number;
+}
+export interface BlackboardTasksResponse { count: number; tasks: BlackboardTask[] }
+export interface BlackboardNode {
+  iri: string; json_ld: string; size: number; created_at: string;
+  created_by?: string | null; tags: string[]; node_type?: string | null;
+  dirty: boolean; parent_task?: string | null; named_graph?: string | null;
+  jsonld_types: string[];
+}
+export interface BlackboardNodesResponse { task_iri: string; count: number; nodes: BlackboardNode[] }
+export interface BlackboardNodeFilters { role?: string; node_type?: string; cycle_id?: string }
+
+export interface BatchWindowStatus {
+  entry_count: number; oldest: string | null; newest: string | null;
+  has_summary: boolean; last_trigger: string | null;
+}
+export interface BatchAgentMetrics {
+  total_extractions: number; total_entities_found: number; total_relations_found: number;
+  total_tokens_consumed: number; success_count: number; failure_count: number;
+  last_outcomes: boolean[];
+}
+export interface BatchAgentConfigSummary {
+  description: string; enabled: boolean; business_domain: string; model?: string | null;
+}
+/** 镜像后端 BatchAgentStatus 枚举（serde 外部标签：字符串或 { Error: msg }）。 */
+export type BatchAgentStatus = 'Registered' | 'Running' | 'Paused' | 'Stopped' | { Error: string };
+export interface BatchAgentRow {
+  name: string; status: BatchAgentStatus | null;
+  window: BatchWindowStatus | null; metrics: BatchAgentMetrics | null;
+  config: BatchAgentConfigSummary | null;
+}
+export interface BatchAgentsResponse { running: boolean; count: number; agents: BatchAgentRow[] }
+
 // ---------- 端点 ----------
 export const api = {
   health: () => request<HealthResponse>('/health'),
@@ -423,6 +459,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  // ── 方案A 平台运维态：L2 黑板浏览器（只读）──
+  listBlackboardTasks: () => request<BlackboardTasksResponse>('/api/v1/blackboard/tasks'),
+  listBlackboardNodes: (taskIri: string, filters?: BlackboardNodeFilters) => {
+    const p = new URLSearchParams({ task_iri: taskIri });
+    if (filters?.role) p.set('role', filters.role);
+    if (filters?.node_type) p.set('node_type', filters.node_type);
+    if (filters?.cycle_id) p.set('cycle_id', filters.cycle_id);
+    return request<BlackboardNodesResponse>(`/api/v1/blackboard/nodes?${p.toString()}`);
+  },
+  // ── 方案A 平台运维态：批处理 Agent 运维台 ──
+  listBatchAgents: () => request<BatchAgentsResponse>('/api/v1/batch/agents'),
+  controlBatchAgent: (name: string, action: 'start' | 'stop') =>
+    request<{ name: string; action: string; status: BatchAgentStatus }>(
+      `/api/v1/batch/agents/${encodeURIComponent(name)}/control`,
+      {
+        method: 'POST', body: JSON.stringify({ action }),
+        headers: { 'X-Identity': adminIdentityHeader() },
+      },
+    ),
 };
 
 // ---------- SSE：任务流式执行 ----------

@@ -10,6 +10,8 @@ import Overview from './pages/Overview';
 import AgentManagement from './pages/AgentManagement';
 import RuntimeKernel from './pages/RuntimeKernel';
 import MemorySystem from './pages/MemorySystem';
+import BlackboardBrowser from './pages/BlackboardBrowser';
+import BatchManager from './pages/BatchManager';
 import SkillRegistry from './pages/SkillRegistry';
 import MCPHub from './pages/MCPHub';
 import Security from './pages/Security';
@@ -57,6 +59,8 @@ export default function App() {
       case 'agents': return <AgentManagement />;
       case 'runtime': return <RuntimeKernel />;
       case 'memory': return <MemorySystem />;
+      case 'blackboard': return <BlackboardBrowser />;
+      case 'batch': return <BatchManager />;
       case 'ontology': return <OntologyLayer />;
       case 'registry': return <SkillRegistry />;
       case 'mcp': return <MCPHub />;

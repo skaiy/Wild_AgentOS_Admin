@@ -1,4 +1,4 @@
-import { LayoutDashboard, Bot, Cpu, Database, Network, ShieldCheck, Settings, Puzzle, Book, BookOpen, Terminal, GitBranch, Layers } from 'lucide-react';
+import { LayoutDashboard, Bot, Cpu, Database, Network, ShieldCheck, Settings, Puzzle, Book, BookOpen, Terminal, GitBranch, Layers, ClipboardList, Layers3 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const navItems = [
@@ -6,6 +6,8 @@ const navItems = [
   { id: 'agents', label: '智能体管理', icon: Bot },
   { id: 'runtime', label: '运行时内核', icon: Cpu },
   { id: 'memory', label: '记忆系统', icon: Database },
+  { id: 'blackboard', label: 'L2黑板', icon: ClipboardList },
+  { id: 'batch', label: '批处理运维', icon: Layers3 },
   { id: 'ontology', label: '本体层', icon: Layers },
   { id: 'registry', label: '技能中心', icon: Puzzle },
   { id: 'prompts', label: 'Prompt版本管理', icon: GitBranch },
