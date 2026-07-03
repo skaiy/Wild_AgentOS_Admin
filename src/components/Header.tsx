@@ -32,7 +32,6 @@ export default function Header({ onLogout }: HeaderProps) {
           </div>
           <div className="text-sm">
             <p className="font-medium text-gray-700">系统管理员</p>
-            <p className="text-xs text-gray-500">diaoguoliang@gmail.com</p>
           </div>
           <button
             onClick={handleLogout}
