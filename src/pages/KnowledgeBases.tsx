@@ -1,26 +1,24 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Database, Clock, HardDrive, Search, Plus, X, UploadCloud, Share2, ChevronRight, Play, Tag, Pencil, Trash2, Check, Network, List } from 'lucide-react';
-import { useMetrics, useAgents, useKbCategories, useKnowledgeBases } from '../api/hooks';
+import { Database, Search, Plus, X, UploadCloud, Share2, ChevronRight, Play, Tag, Pencil, Trash2, Check, Network, List } from 'lucide-react';
+import { useAgents, useKbCategories, useKnowledgeBases } from '../api/hooks';
 import { api, type KbCategory } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import KgGraph from '../components/KgGraph';
 
-/** 字节转人类可读单位。 */
-function fmtBytes(n: number): string {
-  if (!n) return '0 B';
-  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), u.length - 1);
-  return `${(n / 1024 ** i).toFixed(1)} ${u[i]}`;
+/** ISO 时间转本地日期时间（无值返回占位符）。 */
+function fmtDate(s?: string): string {
+  if (!s) return '—';
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleString('zh-CN', { hour12: false });
 }
 
-export default function MemorySystem() {
+export default function KnowledgeBases() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [kbType, setKbType] = useState<'vector' | 'graph'>('vector');
+  const [kbTab, setKbTab] = useState<'vector' | 'graph'>('vector');
+  const [kbSearch, setKbSearch] = useState('');
   const [viewKb, setViewKb] = useState<{ graph: string; agent: string } | null>(null);
-  const metrics = useMetrics();
-  const live = metrics.live;
-  const m = metrics.data;
 
   // 知识库分类（持久化 CRUD）与知识库（持久化）
   const categories = useKbCategories();
@@ -32,17 +30,42 @@ export default function MemorySystem() {
   const agents = useAgents();
   const kbRows = [
     ...(knowledgeBases.data?.bases ?? []).map(b => ({
-      graph: b.graph || `（向量库）${b.name}`,
-      agent: b.name,
+      name: b.name,
+      graph: b.graph || '',
+      namespace: b.vector_namespace || '',
+      source: '持久化知识库',
       kbType: b.kb_type as string,
       category: catName(b.category_id),
+      description: b.description || '',
+      createdBy: b.created_by || '',
+      createdAt: b.created_at || '',
       id: b.id,
       isGraph: b.kb_type === 'graph' && !!b.graph,
     })),
     ...(agents.data?.agents ?? [])
       .filter(a => a.knowledge_graph)
-      .map(a => ({ graph: a.knowledge_graph as string, agent: a.name, kbType: 'graph', category: '', id: '', isGraph: true })),
+      .map(a => ({
+        name: a.name,
+        graph: a.knowledge_graph as string,
+        namespace: '',
+        source: `智能体绑定 · ${a.name}`,
+        kbType: 'graph',
+        category: '',
+        description: '',
+        createdBy: '',
+        createdAt: '',
+        id: '',
+        isGraph: true,
+      })),
   ];
+
+  // 按 Tab（向量/图）划分，并按名称/命名空间/命名图做前端搜索过滤。
+  const q = kbSearch.trim().toLowerCase();
+  const activeRows = kbRows
+    .filter(k => k.kbType === kbTab)
+    .filter(k => !q || [k.name, k.graph, k.namespace, k.category, k.description].some(v => v?.toLowerCase().includes(q)));
+  const vectorCount = kbRows.filter(k => k.kbType === 'vector').length;
+  const graphCount = kbRows.filter(k => k.kbType === 'graph').length;
 
   // 新建知识库表单
   const [kbName, setKbName] = useState('');
@@ -138,69 +161,10 @@ export default function MemorySystem() {
     <div className="space-y-6 relative">
       <div className="flex items-center gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Memory System (记忆系统)</h1>
-          <p className="text-sm text-gray-500 mt-1">短期会话记忆与长期知识库管理 (RAG)</p>
+          <h1 className="text-2xl font-bold text-gray-900">知识库 (Knowledge Bases)</h1>
+          <p className="text-sm text-gray-500 mt-1">向量库 / 图谱库的分类、创建与检索 (RAG)</p>
         </div>
-        <LiveBadge live={live} loading={metrics.loading} error={metrics.error} />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Short-term Memory */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
-              <Clock className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">短期记忆 (Session Memory)</h2>
-              <p className="text-xs text-gray-500">会话上下文管理与Token滑动窗口</p>
-            </div>
-          </div>
-          
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">事件总线消息数</span>
-              <span className="font-bold text-gray-900">{live && m ? m.events.toLocaleString() : '—'}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">活跃订阅者</span>
-              <span className="font-bold text-gray-900">{live && m ? m.subscribers.toLocaleString() : '—'}</span>
-            </div>
-            {!live && <div className="text-xs text-gray-400 text-center pt-2">后端离线，暂无实时会话指标</div>}
-          </div>
-        </div>
-
-        {/* Long-term Memory */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-purple-50 text-purple-600 rounded-lg">
-              <HardDrive className="w-6 h-6" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-gray-900">长期记忆 (Knowledge Memory)</h2>
-              <p className="text-xs text-gray-500">知识库挂载与动态 RAG 检索</p>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">L2 知识节点数</span>
-              <span className="font-bold text-gray-900">{live && m ? m.l2_nodes.toLocaleString() : '—'}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">L2 存储量</span>
-              <span className="font-bold text-gray-900">{live && m ? fmtBytes(m.l2_bytes) : '—'}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">检查点 (Checkpoints)</span>
-              <span className="font-bold text-gray-900">{live && m ? m.checkpoints.toLocaleString() : '—'}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">已注册技能</span>
-              <span className="font-bold text-gray-900">{live && m ? m.skills.toLocaleString() : '—'}</span>
-            </div>
-          </div>
-        </div>
+        <LiveBadge live={knowledgeBases.live} loading={knowledgeBases.loading} error={knowledgeBases.error} />
       </div>
 
       {/* Knowledge Base Categories（知识库分类管理 CRUD） */}
@@ -290,56 +254,93 @@ export default function MemorySystem() {
           <div className="flex gap-2">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" placeholder="搜索知识库..." className="pl-9 pr-4 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <input
+                type="text"
+                value={kbSearch}
+                onChange={e => setKbSearch(e.target.value)}
+                placeholder="搜索知识库..."
+                className="pl-9 pr-4 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-            <button 
-              onClick={() => setIsCreateOpen(true)}
+            <button
+              onClick={() => { setKbType(kbTab); setIsCreateOpen(true); }}
               className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-1"
             >
               <Plus className="w-4 h-4" /> 新建知识库
             </button>
           </div>
         </div>
+
+        {/* Tab 切换：向量库 / 图谱库 */}
+        <div className="px-6 pt-3 border-b border-gray-200 flex gap-1">
+          <button
+            onClick={() => setKbTab('vector')}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition-colors ${kbTab === 'vector' ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Database className="w-4 h-4" /> 向量数据库
+            <span className={`px-1.5 py-0.5 rounded-full text-xs ${kbTab === 'vector' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>{vectorCount}</span>
+          </button>
+          <button
+            onClick={() => setKbTab('graph')}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition-colors ${kbTab === 'graph' ? 'border-purple-600 text-purple-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            <Share2 className="w-4 h-4" /> 图数据库
+            <span className={`px-1.5 py-0.5 rounded-full text-xs ${kbTab === 'graph' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-500'}`}>{graphCount}</span>
+          </button>
+        </div>
+
         <table className="w-full text-left text-sm text-gray-600">
           <thead className="bg-gray-50 text-gray-700 font-medium border-b border-gray-200">
             <tr>
-              <th className="px-6 py-3">知识库 / 命名图</th>
-              <th className="px-6 py-3">类型</th>
+              <th className="px-6 py-3">{kbTab === 'graph' ? '命名图 (Named Graph)' : '名称'}</th>
+              <th className="px-6 py-3">{kbTab === 'graph' ? '来源' : '命名空间 (Namespace)'}</th>
               <th className="px-6 py-3">分类</th>
+              <th className="px-6 py-3">描述</th>
+              <th className="px-6 py-3">创建时间</th>
               <th className="px-6 py-3 text-right">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {kbRows.length === 0 && (
+            {activeRows.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-6 py-10 text-center text-gray-400">
-                  {knowledgeBases.live || agents.live ? '暂无知识库，请点击「新建知识库」创建' : '后端离线，无法加载知识库列表'}
+                <td colSpan={6} className="px-6 py-10 text-center text-gray-400">
+                  {knowledgeBases.live || agents.live
+                    ? (kbSearch.trim() ? '无匹配的知识库' : `暂无${kbTab === 'graph' ? '图谱' : '向量'}知识库，请点击「新建知识库」创建`)
+                    : '后端离线，无法加载知识库列表'}
                 </td>
               </tr>
             )}
-            {kbRows.map((kb, i) => (
+            {activeRows.map((kb, i) => (
               <tr key={i} className="hover:bg-gray-50">
                 <td className="px-6 py-4 font-medium text-gray-900">
                   <div className="flex items-center gap-2">
-                    {kb.kbType === 'graph' ? <Share2 className="w-4 h-4 text-purple-500" /> : <Database className="w-4 h-4 text-blue-500" />}
-                    <span className="font-mono text-xs">{kb.graph}</span>
+                    {kb.kbType === 'graph' ? <Share2 className="w-4 h-4 text-purple-500 shrink-0" /> : <Database className="w-4 h-4 text-blue-500 shrink-0" />}
+                    <span className={kb.kbType === 'graph' ? 'font-mono text-xs break-all' : ''}>{kb.kbType === 'graph' ? kb.graph : kb.name}</span>
                   </div>
-                  <div className="text-xs text-gray-400 mt-0.5 ml-6">{kb.agent}</div>
+                  {kb.createdBy && <div className="text-xs text-gray-400 mt-0.5 ml-6">创建人: {kb.createdBy}</div>}
                 </td>
                 <td className="px-6 py-4">
-                  <span className={`px-2 py-1 rounded-md text-xs ${kb.kbType === 'graph' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
-                    {kb.kbType === 'graph' ? '图数据库' : '向量数据库'}
-                  </span>
+                  {kbTab === 'graph'
+                    ? <span className="text-xs text-gray-500">{kb.source}</span>
+                    : (kb.namespace
+                        ? <span className="font-mono text-xs text-gray-500 break-all">{kb.namespace}</span>
+                        : <span className="text-gray-300 text-xs">—</span>)}
                 </td>
                 <td className="px-6 py-4">
                   {kb.category
                     ? <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded-md text-xs flex items-center gap-1 w-fit"><Tag className="w-3 h-3" />{kb.category}</span>
                     : <span className="text-gray-300 text-xs">未分类</span>}
                 </td>
+                <td className="px-6 py-4">
+                  {kb.description
+                    ? <span className="text-xs text-gray-600 line-clamp-2 max-w-[220px]" title={kb.description}>{kb.description}</span>
+                    : <span className="text-gray-300 text-xs">—</span>}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">{fmtDate(kb.createdAt)}</td>
                 <td className="px-6 py-4 text-right whitespace-nowrap">
                   {kb.isGraph && (
                     <button
-                      onClick={() => setViewKb({ graph: kb.graph, agent: kb.agent })}
+                      onClick={() => setViewKb({ graph: kb.graph, agent: kb.source })}
                       className="text-blue-600 hover:text-blue-800 font-medium text-sm"
                     >
                       查看三元组

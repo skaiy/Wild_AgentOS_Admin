@@ -1,7 +1,7 @@
 import { motion } from 'motion/react';
 import { Activity, CheckCircle2, AlertTriangle, Boxes, GitGraph } from 'lucide-react';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { useHealth, useMetrics, useGuardStats, useAgents } from '../api/hooks';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, AreaChart, Area, Legend } from 'recharts';
+import { useHealth, useMetrics, useGuardStats, useAgents, useTaskTrends } from '../api/hooks';
 import LiveBadge from '../components/LiveBadge';
 
 export default function Overview() {
@@ -9,7 +9,16 @@ export default function Overview() {
   const metrics = useMetrics();
   const guard = useGuardStats();
   const agents = useAgents();
+  const trends = useTaskTrends(7);
   const live = metrics.live || health.live;
+
+  // 任务执行趋势：来自后端持久化检查点按天聚合（GET /api/v1/tasks/trends）。
+  const trendData = (trends.data?.trends ?? []).map((p) => ({
+    date: p.date.slice(5),
+    活跃任务: p.tasks,
+    执行步: p.checkpoints,
+    完成: p.completed,
+  }));
 
   const m = metrics.data;
   const g = guard.data;
@@ -71,7 +80,7 @@ export default function Overview() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 任务执行趋势：后端暂未提供时序指标端点，不展示任何占位数据 */}
+        {/* 任务执行趋势：来自后端持久化检查点按天聚合的真实时序数据 */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -80,11 +89,43 @@ export default function Overview() {
         >
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-bold text-gray-900">任务执行趋势</h2>
+            <span className="text-xs text-gray-400">近 7 天</span>
           </div>
-          <div className="h-72 flex flex-col items-center justify-center text-center text-gray-400">
-            <Activity className="w-10 h-10 mb-3 text-gray-300" />
-            <p className="text-sm">暂无时序趋势数据</p>
-            <p className="text-xs mt-1">接入后端任务时序指标端点后将展示真实数据</p>
+          <div className="h-72">
+            {!trends.live ? (
+              <div className="h-full flex flex-col items-center justify-center text-center text-gray-400">
+                <Activity className="w-10 h-10 mb-3 text-gray-300" />
+                <p className="text-sm">后端未连接</p>
+                <p className="text-xs mt-1">连接后将展示真实任务时序趋势</p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="gradTasks" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gradSteps" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="gradDone" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
+                  <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                  <Area type="monotone" dataKey="活跃任务" stroke="#3b82f6" strokeWidth={2} fill="url(#gradTasks)" />
+                  <Area type="monotone" dataKey="执行步" stroke="#8b5cf6" strokeWidth={2} fill="url(#gradSteps)" />
+                  <Area type="monotone" dataKey="完成" stroke="#10b981" strokeWidth={2} fill="url(#gradDone)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </motion.div>
 

@@ -43,6 +43,32 @@ export interface MetricsResponse {
   l2_nodes: number; l2_bytes: number; events: number;
   subscribers: number; skills: number; checkpoints: number;
 }
+/** 记忆与知识运维中心薄聚合统计（对齐后端 /api/v1/memory/unified-stats）。
+ *  L1/L3 当前无枚举接口，对应字段返回 null。 */
+export interface UnifiedStatsResponse {
+  timestamp: string;
+  memory_tiers: {
+    l0_longterm: { entries: number | null; description: string };
+    l1_session: { sessions: number | null; description: string };
+    l2_blackboard: { nodes: number; bytes: number; tasks: number; description: string };
+    l3_projection: { projections: number | null; description: string };
+  };
+  knowledge_bases: { total: number; by_type: { vector: number; graph: number } };
+  knowledge_packs: number;
+  ontology: {
+    domain: string; object_types: number; link_types: number;
+    action_types: number; functions: number;
+  };
+  runtime: {
+    events: { total_emitted: number; active_subscribers: number };
+    checkpoints: number; skills_registered: number;
+  };
+}
+/** 任务执行时序趋势的单日聚合点（对齐后端 /api/v1/tasks/trends）。 */
+export interface TaskTrendPoint {
+  date: string; tasks: number; checkpoints: number; completed: number;
+}
+export interface TaskTrendsResponse { days: number; trends: TaskTrendPoint[] }
 /** 签名校验状态：与后端 SignatureStatus 枚举对应。 */
 export type SignatureStatus = 'verified' | 'invalid' | 'unsigned' | 'no_trust_anchor';
 export interface SkillMeta {
@@ -298,6 +324,8 @@ export interface BatchAgentsResponse { running: boolean; count: number; agents: 
 export const api = {
   health: () => request<HealthResponse>('/health'),
   metrics: () => request<MetricsResponse>('/metrics'),
+  unifiedStats: () => request<UnifiedStatsResponse>('/api/v1/memory/unified-stats'),
+  taskTrends: (days = 7) => request<TaskTrendsResponse>(`/api/v1/tasks/trends?days=${days}`),
   config: () => request<RuntimeConfigInfo>('/api/v1/config'),
   updateConfig: (patch: { gateway?: Partial<RuntimeGatewayInfo & { api_key: string }> }) =>
     request<ConfigUpdateResponse>('/api/v1/config', {

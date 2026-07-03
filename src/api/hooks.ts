@@ -14,9 +14,11 @@ import {
   type McpServersResponse,
   type MetricsResponse,
   type OntologyTypesResponse,
+  type UnifiedStatsResponse,
   type PromptVersionsResponse,
   type RuntimeConfigInfo,
   type SkillsResponse,
+  type TaskTrendsResponse,
 } from './client';
 
 export interface AsyncState<T> {
@@ -83,8 +85,14 @@ export const useHealth = () =>
 export const useMetrics = () =>
   useAsync<MetricsResponse>(() => api.metrics(), { pollMs: 5_000 });
 
+export const useUnifiedStats = () =>
+  useAsync<UnifiedStatsResponse>(() => api.unifiedStats(), { pollMs: 10_000 });
+
 export const useSkills = () =>
   useAsync<SkillsResponse>(() => api.skills(), { pollMs: 30_000 });
+
+export const useTaskTrends = (days = 7) =>
+  useAsync<TaskTrendsResponse>(() => api.taskTrends(days), { pollMs: 30_000, deps: [days] });
 
 export const useGuardStats = () =>
   useAsync<GuardStats>(() => api.guardStats(), { pollMs: 8_000 });

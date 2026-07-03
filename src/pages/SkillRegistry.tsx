@@ -182,6 +182,20 @@ export default function SkillRegistry() {
     }),
     [baseList],
   );
+  // 验签真实统计：已验签技能 / 受信任公钥数 / 验签异常（未签名+失败+无信任锚）。
+  const sigStats = useMemo(
+    () => ({
+      verified: baseList.filter((s) => s.signatureStatus === 'verified').length,
+      anomalies: baseList.filter(
+        (s) =>
+          s.signatureStatus === 'invalid' ||
+          s.signatureStatus === 'unsigned' ||
+          s.signatureStatus === 'no_trust_anchor',
+      ).length,
+      trustedKeys: live ? data?.trusted_key_count ?? 0 : 0,
+    }),
+    [baseList, live, data],
+  );
   const skills = useMemo(() => {
     let list = baseList;
     if (scope !== 'all') list = list.filter((s) => s.scope === scope);
@@ -333,24 +347,24 @@ export default function SkillRegistry() {
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
-          <div className="p-3 bg-green-50 text-green-600 rounded-xl"><CheckCircle2 className="w-6 h-6" /></div>
+          <div className="p-3 bg-green-50 text-green-600 rounded-xl"><ShieldCheck className="w-6 h-6" /></div>
           <div>
-            <p className="text-sm text-gray-500">生产环境发布</p>
-            <p className="text-2xl font-bold text-gray-900">105</p>
+            <p className="text-sm text-gray-500">已验签技能</p>
+            <p className="text-2xl font-bold text-gray-900">{live ? sigStats.verified : '—'}</p>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
-          <div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><GitBranch className="w-6 h-6" /></div>
+          <div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><Shield className="w-6 h-6" /></div>
           <div>
-            <p className="text-sm text-gray-500">灰度/金丝雀中</p>
-            <p className="text-2xl font-bold text-gray-900">8</p>
+            <p className="text-sm text-gray-500">受信任公钥数</p>
+            <p className="text-2xl font-bold text-gray-900">{live ? sigStats.trustedKeys : '—'}</p>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
-          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><AlertCircle className="w-6 h-6" /></div>
+          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl"><ShieldAlert className="w-6 h-6" /></div>
           <div>
-            <p className="text-sm text-gray-500">冲突/异常拦截</p>
-            <p className="text-2xl font-bold text-gray-900">3</p>
+            <p className="text-sm text-gray-500">验签异常</p>
+            <p className="text-2xl font-bold text-gray-900">{live ? sigStats.anomalies : '—'}</p>
           </div>
         </div>
       </div>

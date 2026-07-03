@@ -1,14 +1,13 @@
-import { LayoutDashboard, Bot, Cpu, Database, Network, ShieldCheck, Settings, Puzzle, Book, BookOpen, Terminal, GitBranch, Layers, ClipboardList, Layers3 } from 'lucide-react';
+import { LayoutDashboard, Bot, Cpu, Database, Network, ShieldCheck, Settings, Puzzle, Book, BookOpen, Terminal, GitBranch, Layers, Layers3 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const navItems = [
   { id: 'overview', label: '总览大盘', icon: LayoutDashboard },
   { id: 'agents', label: '智能体管理', icon: Bot },
   { id: 'runtime', label: '运行时内核', icon: Cpu },
-  { id: 'memory', label: '记忆系统', icon: Database },
-  { id: 'blackboard', label: 'L2黑板', icon: ClipboardList },
+  { id: 'memory', label: '记忆中心', icon: Database },
+  { id: 'knowledge', label: '知识中心', icon: Layers },
   { id: 'batch', label: '批处理运维', icon: Layers3 },
-  { id: 'ontology', label: '本体层', icon: Layers },
   { id: 'registry', label: '技能中心', icon: Puzzle },
   { id: 'prompts', label: 'Prompt版本管理', icon: GitBranch },
   { id: 'mcp', label: 'MCP枢纽', icon: Network },
