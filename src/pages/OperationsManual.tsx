@@ -58,7 +58,8 @@ export default function OperationsManual() {
              prose-li:mb-2 prose-strong:text-gray-900 prose-strong:font-semibold
              prose-table:text-sm prose-th:bg-gray-50 prose-td:align-top
              prose-code:text-pink-600 prose-code:bg-gray-50 prose-code:px-1 prose-code:rounded
-             prose-pre:bg-gray-900 prose-pre:text-gray-100"
+             prose-pre:bg-gray-50 prose-pre:text-gray-800 prose-pre:border prose-pre:border-gray-200
+             [&_pre_code]:text-gray-800 [&_pre_code]:bg-transparent"
           >
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
