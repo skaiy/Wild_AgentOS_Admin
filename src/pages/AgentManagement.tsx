@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, X, Plus, Save, Send, Paperclip, Bot, User, Smartphone, Monitor, MessageCircle, MessageSquare, Link as LinkIcon, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles, Rocket } from 'lucide-react';
+import { Settings, X, Plus, Save, Send, Bot, User, Smartphone, Monitor, MessageSquare, Link as LinkIcon, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles, Rocket } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useHealth, useAgents, useSkills, useMcpServers, useRuntimeConfig, useKnowledgePacks } from '../api/hooks';
@@ -549,13 +549,6 @@ export default function AgentManagement() {
                       {testingAgent.name}
                       <span className="w-2 h-2 rounded-full bg-green-500"></span>
                     </h2>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-gray-500">发布至:</span>
-                      <button className="text-gray-400 hover:text-blue-500" title="企业微信"><MessageCircle className="w-3.5 h-3.5" /></button>
-                      <button className="text-gray-400 hover:text-blue-500" title="钉钉"><MessageSquare className="w-3.5 h-3.5" /></button>
-                      <button className="text-gray-400 hover:text-blue-500" title="Web 精灵球"><Monitor className="w-3.5 h-3.5" /></button>
-                      <button className="text-gray-400 hover:text-blue-500" title="独立客户端"><Smartphone className="w-3.5 h-3.5" /></button>
-                    </div>
                   </div>
                 </div>
                 <button onClick={() => setTestingAgent(null)} className="text-gray-400 hover:text-gray-600 p-2 rounded-md hover:bg-gray-100 transition-colors">
@@ -636,9 +629,6 @@ export default function AgentManagement() {
               {/* Input Area */}
               <div className="p-4 bg-white border-t border-gray-200">
                 <div className="flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
-                  <button className="p-2 text-gray-400 hover:text-blue-600 rounded-lg transition-colors shrink-0">
-                    <Paperclip className="w-5 h-5" />
-                  </button>
                   <textarea
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}

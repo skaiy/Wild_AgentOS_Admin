@@ -73,56 +73,6 @@ function SignatureBadge({ status }: { status?: SignatureStatus }) {
   );
 }
 
-const mockSkills: SkillCard[] = [
-  {
-    id: 'sk-001',
-    name: 'PDF复杂表格解析',
-    description: '基于多模态大模型的PDF复杂表格提取技能，支持跨页表格合并与表头识别。',
-    version: 'v2.1.0',
-    status: 'published',
-    author: 'AI算法组',
-    lastUpdate: '2小时前',
-    tags: ['多模态', '文档处理'],
-    pipeline: 'success'
-  },
-  {
-    id: 'sk-002',
-    name: 'VIN码合规校验',
-    description: '校验车辆VIN码的规则合法性，并解析出产地、年份、车型等基础信息。',
-    version: 'v1.0.4',
-    status: 'canary',
-    author: '业务研发部',
-    lastUpdate: '5小时前',
-    tags: ['规则引擎', '车辆业务'],
-    pipeline: 'success',
-    canaryTraffic: '5%'
-  },
-  {
-    id: 'sk-003',
-    name: 'ERP财务对账查询',
-    description: '封装金蝶ERP财务对账接口，提供自然语言转SQL的对账单查询能力。',
-    version: 'v1.2.0-rc.1',
-    status: 'testing',
-    author: '财务产研',
-    lastUpdate: '10分钟前',
-    tags: ['ERP集成', '数据查询'],
-    pipeline: 'running'
-  },
-  {
-    id: 'sk-004',
-    name: '电池SOH衰减预测',
-    description: '基于历史充放电时序数据，预测两轮车电池SOH健康度衰减曲线。',
-    version: 'v0.9.0',
-    status: 'conflict',
-    author: 'IoT数据组',
-    lastUpdate: '1天前',
-    tags: ['机器学习', 'IoT'],
-    pipeline: 'failed',
-    conflictMsg: '检测到软冲突：与"电池寿命评估"技能功能重叠',
-    scope: 'application' as SkillScope,
-  }
-].map((s) => ({ ...s, scope: (s as { scope?: SkillScope }).scope ?? resolveScope(s.id) }));
-
 const SCOPE_TABS: { key: 'all' | SkillScope; label: string }[] = [
   { key: 'all', label: '全部技能' },
   { key: 'system', label: '系统级' },
@@ -171,7 +121,7 @@ export default function SkillRegistry() {
   const [manifestLoading, setManifestLoading] = useState(false);
   const [manifestError, setManifestError] = useState<string | null>(null);
   const baseList = useMemo(
-    () => (live && data?.skills?.length ? data.skills.map(adaptSkill) : mockSkills),
+    () => (live && data?.skills?.length ? data.skills.map(adaptSkill) : []),
     [live, data],
   );
   const scopeCounts = useMemo(
@@ -205,7 +155,7 @@ export default function SkillRegistry() {
       (s) => s.name.toLowerCase().includes(q) || s.tags.some((t) => t.toLowerCase().includes(q)),
     );
   }, [baseList, scope, query]);
-  const total = live ? data?.count ?? 0 : 128;
+  const total = live ? data?.count ?? 0 : 0;
 
   const openModal = (type: 'create' | 'details', skill: any = null) => {
     setSelectedSkill(skill);
@@ -343,7 +293,7 @@ export default function SkillRegistry() {
           <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><Puzzle className="w-6 h-6" /></div>
           <div>
             <p className="text-sm text-gray-500">已注册技能总数</p>
-            <p className="text-2xl font-bold text-gray-900">{total}</p>
+            <p className="text-2xl font-bold text-gray-900">{live ? total : '—'}</p>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-center gap-4">
@@ -460,6 +410,14 @@ export default function SkillRegistry() {
           </motion.div>
         ))}
       </div>
+
+      {skills.length === 0 && (
+        <div className="text-center text-gray-400 py-16 border border-dashed border-gray-200 rounded-xl bg-white">
+          {live
+            ? '暂无技能，点击右上角「新建/导入技能」注册第一个技能。'
+            : '后端未连接，无法加载技能列表。'}
+        </div>
+      )}
 
       {/* Modals */}
       <AnimatePresence>
