@@ -19,6 +19,8 @@ import {
   type RuntimeConfigInfo,
   type SkillsResponse,
   type TaskTrendsResponse,
+  type ApiClientsResponse,
+  type ApiAuditResponse,
 } from './client';
 
 export interface AsyncState<T> {
@@ -123,3 +125,12 @@ export const useKnowledgePacks = () =>
 
 export const useOntologyTypes = () =>
   useAsync<OntologyTypesResponse>(() => api.ontologyTypes(), { pollMs: 60_000 });
+
+export const useApiClients = () =>
+  useAsync<ApiClientsResponse>(() => api.listApiClients(), { pollMs: 30_000 });
+
+export const useApiAudit = (query?: { client_id?: string; agent_id?: string; limit?: number }) =>
+  useAsync<ApiAuditResponse>(() => api.listApiAudit(query), {
+    pollMs: 30_000,
+    deps: [query?.client_id, query?.agent_id, query?.limit],
+  });

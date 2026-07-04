@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, X, Plus, Save, Send, Paperclip, Bot, User, Smartphone, Monitor, MessageCircle, MessageSquare, Link as LinkIcon, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles } from 'lucide-react';
+import { Settings, X, Plus, Save, Send, Paperclip, Bot, User, Smartphone, Monitor, MessageCircle, MessageSquare, Link as LinkIcon, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles, Rocket } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useHealth, useAgents, useSkills, useMcpServers, useRuntimeConfig, useKnowledgePacks } from '../api/hooks';
 import { api, type SuggestedAction } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
+import PublishDrawer from '../components/PublishDrawer';
 
 const ICONS: Record<string, any> = { Bot, User, Smartphone, Monitor, Wrench, Car, Zap, FileText, Activity, Headset, Battery, Shield, MessageCirclePlus, Sparkles };
 const COLORS = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-indigo-500', 'bg-rose-500', 'bg-slate-800'];
@@ -19,6 +20,7 @@ export default function AgentManagement() {
   const [modalType, setModalType] = useState<'create' | 'edit' | null>(null);
   const [selectedAgent, setSelectedAgent] = useState<any>(null);
   const [testingAgent, setTestingAgent] = useState<any>(null);
+  const [publishAgent, setPublishAgent] = useState<any>(null);
   // skills 改为 string[] 存储选中的 skill_iri 列表
   const [form, setForm] = useState({ name: '', description: '', business_domain: '', skills: [] as string[], knowledge_graph: '', knowledge_pack_ids: [] as string[], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
   const [saving, setSaving] = useState(false);
@@ -255,6 +257,9 @@ export default function AgentManagement() {
                       );
                     })()}
                     <span className="text-sm font-medium text-gray-800 truncate">{a.name}</span>
+                    {a.published && (
+                      <span className="text-[10px] bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 shrink-0" title="已对外发布">已发布</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => { setGraphBindAgent(a); setGraphSelection(a.knowledge_graph ?? ''); setGraphDesc(''); }} className="text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100" title="绑定知识库">
@@ -262,6 +267,9 @@ export default function AgentManagement() {
                     </button>
                     <button onClick={() => setTestingAgent(a)} className="text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100" title="测试对话">
                       <MessageSquare className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => setPublishAgent(a)} className={`p-1 rounded hover:bg-gray-100 ${a.published ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`} title="对外发布">
+                      <Rocket className="w-4 h-4" />
                     </button>
                     <button onClick={() => openModal('edit', a)} className="text-gray-400 hover:text-blue-600 p-1 rounded hover:bg-gray-100" title="编辑">
                       <Settings className="w-4 h-4" />
@@ -650,6 +658,18 @@ export default function AgentManagement() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* 对外发布抽屉 */}
+      <AnimatePresence>
+        {publishAgent && (
+          <PublishDrawer
+            key={publishAgent.id}
+            agent={publishAgent}
+            onClose={() => setPublishAgent(null)}
+            onChanged={() => agentsState.refresh()}
+          />
         )}
       </AnimatePresence>
 

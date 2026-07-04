@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Save, Server, Shield, Users, Key, Database, Plus, Trash2, AlertTriangle, CheckCircle2, Copy, Upload, RefreshCw } from 'lucide-react';
+import { Save, Server, Shield, Users, Key, Database, AlertTriangle, CheckCircle2, Copy, Upload, RefreshCw } from 'lucide-react';
 import { loadConfig, saveConfig, toEnvSnippet, toYamlSnippet, type RuntimeConfig } from '../api/config';
 import { useRuntimeConfig } from '../api/hooks';
 import { api } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
+import ApiKeyCenter from '../components/ApiKeyCenter';
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('llm');
@@ -562,80 +563,7 @@ export default function Settings() {
           )}
 
           {/* Tab: API Keys */}
-          {activeTab === 'keys' && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between border-b border-gray-200 pb-4">
-                <h2 className="text-lg font-bold text-gray-900">API 密钥管理</h2>
-                <button className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2">
-                  <Plus className="w-4 h-4" /> 创建新密钥
-                </button>
-              </div>
-
-              <div className="bg-amber-50 text-amber-800 text-sm p-4 rounded-lg border border-amber-200 flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-                <p>请妥善保管您的 API 密钥。密钥仅在创建时完整显示一次。如果密钥泄露，请立即撤销并重新生成。</p>
-              </div>
-
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50 text-gray-700 font-medium border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3">密钥名称</th>
-                      <th className="px-4 py-3">密钥前缀</th>
-                      <th className="px-4 py-3">权限范围</th>
-                      <th className="px-4 py-3">最后使用时间</th>
-                      <th className="px-4 py-3">状态</th>
-                      <th className="px-4 py-3">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-gray-600">
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-4 py-4 font-medium text-gray-900">DLSX 闪修系统对接</td>
-                      <td className="px-4 py-4 font-mono text-xs bg-gray-100 rounded px-2 py-1 inline-block mt-2">sk-dlsx-***</td>
-                      <td className="px-4 py-4">MCP Hub 调用</td>
-                      <td className="px-4 py-4">10 分钟前</td>
-                      <td className="px-4 py-4">
-                        <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><CheckCircle2 className="w-3 h-3"/> 正常</span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <button className="text-red-600 hover:text-red-800 flex items-center gap-1 text-xs font-medium">
-                          <Trash2 className="w-3 h-3" /> 撤销
-                        </button>
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-4 py-4 font-medium text-gray-900">外部 BI 数据拉取</td>
-                      <td className="px-4 py-4 font-mono text-xs bg-gray-100 rounded px-2 py-1 inline-block mt-2">sk-bi-***</td>
-                      <td className="px-4 py-4">只读查询</td>
-                      <td className="px-4 py-4">2 天前</td>
-                      <td className="px-4 py-4">
-                        <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><CheckCircle2 className="w-3 h-3"/> 正常</span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <button className="text-red-600 hover:text-red-800 flex items-center gap-1 text-xs font-medium">
-                          <Trash2 className="w-3 h-3" /> 撤销
-                        </button>
-                      </td>
-                    </tr>
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-4 py-4 font-medium text-gray-900">测试环境联调 Key</td>
-                      <td className="px-4 py-4 font-mono text-xs bg-gray-100 rounded px-2 py-1 inline-block mt-2">sk-test-***</td>
-                      <td className="px-4 py-4">全量权限 (开发环境)</td>
-                      <td className="px-4 py-4 text-gray-400">从未调用</td>
-                      <td className="px-4 py-4">
-                        <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><CheckCircle2 className="w-3 h-3"/> 正常</span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <button className="text-red-600 hover:text-red-800 flex items-center gap-1 text-xs font-medium">
-                          <Trash2 className="w-3 h-3" /> 撤销
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          {activeTab === 'keys' && <ApiKeyCenter />}
 
         </div>
       </div>

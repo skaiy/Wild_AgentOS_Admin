@@ -130,6 +130,8 @@ export interface AgentInfo {
   knowledge_pack_ids?: string[];
   source?: string; created_at?: string; updated_at?: string;
   icon?: string; color?: string;
+  /** 是否已对外发布（可经入站 API 密钥调用）。 */
+  published?: boolean;
 }
 export interface AgentsResponse {
   count: number; agents: AgentInfo[];
@@ -140,6 +142,7 @@ export interface AgentCreatePayload {
   skills?: string[]; knowledge_graph?: string; enabled?: boolean;
   knowledge_pack_ids?: string[];
   icon?: string; color?: string;
+  published?: boolean;
 }
 export interface AgentChatSource { code: string; label: string; brand: string }
 /** 决策层建议动作：将诊断意图映射到动力层 ActionType。requires_business_data=true 表示
@@ -319,6 +322,50 @@ export interface BatchAgentRow {
   config: BatchAgentConfigSummary | null;
 }
 export interface BatchAgentsResponse { running: boolean; count: number; agents: BatchAgentRow[] }
+
+// ---------- Agent 对外发布与 API 密钥治理 ----------
+export interface ApiRateLimit { rpm: number; concurrency: number }
+export interface ApiQuota { daily: number; monthly: number }
+/** 调用方实时用量快照（后端进程内计数）。 */
+export interface ApiUsageSnapshot {
+  rpm_current: number; concurrency_current: number;
+  daily_used: number; monthly_used: number;
+}
+/** 入站密钥对外视图（绝不含明文/哈希）。 */
+export interface ApiKeyView {
+  id: string; name: string; client_id: string; key_prefix: string;
+  status: string; last_used_at: string | null;
+  expires_at: string | null; created_at: string;
+}
+/** 调用方（入站 API 一等实体，含名下密钥视图与用量快照）。 */
+export interface ApiClientView {
+  id: string; name: string; description: string; tenant_id: string; owner: string;
+  granted_agent_ids: string[]; status: string;
+  rate_limit: ApiRateLimit; quota: ApiQuota;
+  created_at: string; updated_at: string;
+  keys: ApiKeyView[]; usage: ApiUsageSnapshot;
+}
+export interface ApiClientsResponse { count: number; clients: ApiClientView[] }
+export interface ApiClientCreatePayload {
+  name: string; description?: string; owner?: string;
+  granted_agent_ids?: string[];
+  rate_limit?: ApiRateLimit; quota?: ApiQuota;
+}
+export interface ApiClientUpdatePayload {
+  name?: string; description?: string; owner?: string;
+  granted_agent_ids?: string[]; status?: string;
+  rate_limit?: ApiRateLimit; quota?: ApiQuota;
+}
+/** 签发密钥响应：api_key 明文仅此一次返回。 */
+export interface IssueKeyResponse {
+  status: string; key: ApiKeyView; api_key: string; warning: string;
+}
+export interface ApiAuditRecord {
+  ts: string; client_id: string; key_prefix: string; agent_id: string;
+  endpoint: string; status: number; result: string;
+  latency_ms?: number; tenant_id?: string;
+}
+export interface ApiAuditResponse { count: number; records: ApiAuditRecord[] }
 
 // ---------- 端点 ----------
 export const api = {
@@ -506,6 +553,51 @@ export const api = {
         headers: { 'X-Identity': adminIdentityHeader() },
       },
     ),
+
+  // ── Agent 对外发布与 API 密钥治理（管理面需 DA 角色）──
+  listApiClients: () =>
+    request<ApiClientsResponse>('/api/v1/api-clients', {
+      headers: { 'X-Identity': adminIdentityHeader() },
+    }),
+  createApiClient: (payload: ApiClientCreatePayload) =>
+    request<{ status: string; client: ApiClientView }>('/api/v1/api-clients', {
+      method: 'POST', body: JSON.stringify(payload),
+      headers: { 'X-Identity': adminIdentityHeader() },
+    }),
+  updateApiClient: (id: string, patch: ApiClientUpdatePayload) =>
+    request<{ status: string; client: ApiClientView }>(
+      `/api/v1/api-clients/${encodeURIComponent(id)}`, {
+        method: 'PUT', body: JSON.stringify(patch),
+        headers: { 'X-Identity': adminIdentityHeader() },
+      }),
+  deleteApiClient: (id: string) =>
+    request<{ status: string; id: string }>(
+      `/api/v1/api-clients/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { 'X-Identity': adminIdentityHeader() },
+      }),
+  issueApiKey: (id: string, req: { name: string; expires_at?: string }) =>
+    request<IssueKeyResponse>(
+      `/api/v1/api-clients/${encodeURIComponent(id)}/keys`, {
+        method: 'POST', body: JSON.stringify(req),
+        headers: { 'X-Identity': adminIdentityHeader() },
+      }),
+  revokeApiKey: (id: string, kid: string) =>
+    request<{ status: string; id: string }>(
+      `/api/v1/api-clients/${encodeURIComponent(id)}/keys/${encodeURIComponent(kid)}`, {
+        method: 'DELETE',
+        headers: { 'X-Identity': adminIdentityHeader() },
+      }),
+  listApiAudit: (query?: { client_id?: string; agent_id?: string; limit?: number }) => {
+    const p = new URLSearchParams();
+    if (query?.client_id) p.set('client_id', query.client_id);
+    if (query?.agent_id) p.set('agent_id', query.agent_id);
+    if (query?.limit) p.set('limit', String(query.limit));
+    const qs = p.toString();
+    return request<ApiAuditResponse>(`/api/v1/api-audit${qs ? `?${qs}` : ''}`, {
+      headers: { 'X-Identity': adminIdentityHeader() },
+    });
+  },
 };
 
 // ---------- SSE：任务流式执行 ----------
