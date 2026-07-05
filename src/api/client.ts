@@ -135,12 +135,31 @@ export interface RuntimeGatewayInfo {
   timeout_seconds: number; model_mapping: Record<string, string>;
   api_key_configured?: boolean;
 }
+/** 向量化（Embedding）运行期配置快照。oneapi.api_key 不回显，仅暴露 api_key_configured。
+ *  active_dimension 为当前生效维度（变更 provider/维度后需重启 + 对存量库重建索引）。 */
+export interface RuntimeEmbeddingInfo {
+  enabled: boolean;
+  provider: string; // 'ollama' | 'oneapi' | 'fallback'
+  active_dimension: number;
+  ollama: { base_url: string; model: string; dimension: number };
+  oneapi: { base_url: string; model: string; dimension: number; api_key_configured?: boolean };
+  fallback: { dimension: number };
+}
 export interface RuntimeConfigInfo {
   version: string;
   gateway: RuntimeGatewayInfo;
+  embedding?: RuntimeEmbeddingInfo;
   api: { grpc_addr: string; http_addr: string; metrics_port: number };
   memory: { l1_max_messages: number; l2_max_node_size: number };
   agents: { max_iterations: number; max_parallel_agents: number };
+}
+/** PUT /api/v1/config 的 embedding 补丁（部分字段）。 */
+export interface EmbeddingConfigPatch {
+  enabled?: boolean;
+  provider?: string;
+  ollama?: Partial<{ base_url: string; model: string; dimension: number }>;
+  oneapi?: Partial<{ base_url: string; model: string; dimension: number; api_key: string }>;
+  fallback?: Partial<{ dimension: number }>;
 }
 export interface AgentInfo {
   name: string; description: string; enabled: boolean; business_domain: string;
@@ -225,14 +244,32 @@ export interface KnowledgeBasesResponse { count: number; bases: KnowledgeBase[] 
 export interface KnowledgeBaseCreatePayload {
   name: string; description?: string; kb_type: KbType; category_id?: string;
 }
-/** 向量库文件上传逐文件结果：skipped_reason 存在表示该文件未摄取（如暂无 PDF/Word 解析器）。 */
-export interface KbUploadFileResult { name: string; chunks: number; skipped_reason?: string }
+/** 向量库文件上传逐文件结果：skipped_reason 存在表示该文件未向量化；persisted 表示原文是否已落盘。 */
+export interface KbUploadFileResult {
+  name: string; chunks: number; doc_id?: string; persisted?: boolean;
+  skipped_reason?: string; persist_warning?: string;
+}
 /** 向量库文件上传响应：chunk_strategy_applied 为后端实际应用策略（当前仅 fixed）。 */
 export interface KbUploadResponse {
   status: string; namespace: string; total_chunks: number;
   chunk_size: number; chunk_strategy_requested: string; chunk_strategy_applied: string;
   files: KbUploadFileResult[];
 }
+/** 原文对象存储引用（后端 BlobStore：minio / local）。 */
+export interface KbBlobRef { backend: string; key: string }
+/** 原文档台账条目（对齐后端 KB.documents）。status: ready|stored|failed。 */
+export interface KbDocument {
+  doc_id: string; filename: string; size: number; content_type: string;
+  blob_ref: KbBlobRef | null; status: string; chunks: number;
+  chunk_iris?: string[]; chunk_size?: number; chunk_strategy?: string;
+  min_importance?: number; uploaded_by?: string; uploaded_at?: string;
+  skipped_reason?: string; persist_warning?: string;
+}
+export interface KbDocumentsResponse {
+  count: number; documents: KbDocument[];
+  reindex_status: string | null; reindexed_at: string | null;
+}
+export interface KbReindexResponse { status: string; id: string; documents: number }
 /** 图谱库三元组导入响应。 */
 export interface KbImportGraphResponse {
   status: string; graph: string; format: string;
@@ -402,7 +439,10 @@ export const api = {
   unifiedStats: () => request<UnifiedStatsResponse>('/api/v1/memory/unified-stats'),
   taskTrends: (days = 7) => request<TaskTrendsResponse>(`/api/v1/tasks/trends?days=${days}`),
   config: () => request<RuntimeConfigInfo>('/api/v1/config'),
-  updateConfig: (patch: { gateway?: Partial<RuntimeGatewayInfo & { api_key: string }> }) =>
+  updateConfig: (patch: {
+    gateway?: Partial<RuntimeGatewayInfo & { api_key: string }>;
+    embedding?: EmbeddingConfigPatch;
+  }) =>
     request<ConfigUpdateResponse>('/api/v1/config', {
       method: 'PUT', body: JSON.stringify(patch),
     }),
@@ -549,6 +589,17 @@ export const api = {
     if (opts?.min_importance != null) fd.append('min_importance', String(opts.min_importance));
     return requestForm<KbUploadResponse>(`/api/v1/kb/bases/${encodeURIComponent(id)}/upload`, fd);
   },
+  /** 原文档台账：文件名/大小/分块/状态/原文引用，用于详情与重建。 */
+  listKbDocuments: (id: string) =>
+    request<KbDocumentsResponse>(`/api/v1/kb/bases/${encodeURIComponent(id)}/documents`),
+  /** 触发按当前 embedding/分块重建向量索引（异步，返回 202）。 */
+  reindexKb: (id: string) =>
+    request<KbReindexResponse>(`/api/v1/kb/bases/${encodeURIComponent(id)}/reindex`, {
+      method: 'POST', headers: { 'X-Identity': adminIdentityHeader() },
+    }),
+  /** 原文预览/下载直链（经 core 代理 BlobStore，不暴露 MinIO）。 */
+  kbDocumentRawUrl: (id: string, docId: string) =>
+    `${getBackendBase()}/api/v1/kb/bases/${encodeURIComponent(id)}/documents/${encodeURIComponent(docId)}/raw`,
   /** 图谱知识库三元组导入（multipart）：CSV/JSONL/triples → 写入命名图；可选 schema。 */
   importKbGraph: (
     id: string,

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Database, Search, Plus, X, UploadCloud, Share2, ChevronRight, Play, Tag, Pencil, Trash2, Check, Network, List } from 'lucide-react';
+import { Database, Search, Plus, X, UploadCloud, Share2, ChevronRight, Play, Tag, Pencil, Trash2, Check, Network, List, FileText, RefreshCw, Eye } from 'lucide-react';
 import { useKbCategories, useKnowledgeBases } from '../api/hooks';
-import { api, type KbCategory } from '../api/client';
+import { api, type KbCategory, type KbDocument } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import KgGraph from '../components/KgGraph';
 
@@ -11,6 +11,24 @@ function fmtDate(s?: string): string {
   if (!s) return '—';
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? s : d.toLocaleString('zh-CN', { hour12: false });
+}
+
+/** 字节数转人类可读大小。 */
+function fmtSize(n?: number): string {
+  if (n == null) return '—';
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 文档台账状态 → 徽标样式与中文label。 */
+function docStatusBadge(status?: string): { label: string; cls: string } {
+  switch (status) {
+    case 'ready': return { label: '已向量化', cls: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
+    case 'stored': return { label: '仅留底', cls: 'bg-amber-50 text-amber-700 border-amber-100' };
+    case 'failed': return { label: '失败', cls: 'bg-red-50 text-red-700 border-red-100' };
+    default: return { label: status || '—', cls: 'bg-gray-50 text-gray-600 border-gray-200' };
+  }
 }
 
 export default function KnowledgeBases() {
@@ -165,6 +183,47 @@ export default function KnowledgeBases() {
       .finally(() => { if (!cancelled) setTriLoading(false); });
     return () => { cancelled = true; };
   }, [viewKb]);
+
+  // 原文档台账抽屉（向量库）：文件列表 + 原文预览 + 重建索引
+  const [docsKb, setDocsKb] = useState<{ id: string; name: string } | null>(null);
+  const [docs, setDocs] = useState<KbDocument[] | null>(null);
+  const [docsMeta, setDocsMeta] = useState<{ reindex_status: string | null; reindexed_at: string | null }>({ reindex_status: null, reindexed_at: null });
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [docsError, setDocsError] = useState<string | null>(null);
+  const [reindexing, setReindexing] = useState(false);
+  const [reindexMsg, setReindexMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (!docsKb) { setDocs(null); setDocsError(null); setReindexMsg(null); return; }
+    let cancelled = false;
+    setDocsLoading(true); setDocsError(null); setDocs(null);
+    api.listKbDocuments(docsKb.id)
+      .then(r => { if (!cancelled) { setDocs(r.documents); setDocsMeta({ reindex_status: r.reindex_status, reindexed_at: r.reindexed_at }); } })
+      .catch(e => { if (!cancelled) setDocsError(e?.message ?? String(e)); })
+      .finally(() => { if (!cancelled) setDocsLoading(false); });
+    return () => { cancelled = true; };
+  }, [docsKb]);
+  const refreshDocs = () => {
+    if (!docsKb) return;
+    api.listKbDocuments(docsKb.id)
+      .then(r => { setDocs(r.documents); setDocsMeta({ reindex_status: r.reindex_status, reindexed_at: r.reindexed_at }); })
+      .catch(() => {});
+  };
+  const triggerReindex = async () => {
+    if (!docsKb) return;
+    setReindexing(true); setReindexMsg(null);
+    try {
+      const r = await api.reindexKb(docsKb.id);
+      setReindexMsg(`已触发重建（${r.documents} 个文档），后台处理中…`);
+      setDocsMeta(m => ({ ...m, reindex_status: 'reindexing' }));
+      setTimeout(refreshDocs, 2000);
+      setTimeout(refreshDocs, 5000);
+    } catch (e: any) {
+      setReindexMsg(`重建失败：${e?.message ?? String(e)}`);
+    } finally {
+      setReindexing(false);
+    }
+  };
+
 
   // KG 实时查询面板
   const [sparql, setSparql] = useState('SELECT ?s ?p ?o WHERE { ?s ?p ?o . } LIMIT 10');
@@ -371,6 +430,14 @@ export default function KnowledgeBases() {
                       查看三元组
                     </button>
                   )}
+                  {!kb.isGraph && kb.id && (
+                    <button
+                      onClick={() => setDocsKb({ id: kb.id, name: kb.name })}
+                      className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                    >
+                      查看文档
+                    </button>
+                  )}
                   {kb.id && (
                     <button
                       onClick={() => removeKb(kb.id)}
@@ -474,6 +541,122 @@ export default function KnowledgeBases() {
         )}
       </AnimatePresence>
 
+      {/* 原文档台账抽屉（向量库）：原文列表 + 预览 + 重建索引 */}
+      <AnimatePresence>
+        {docsKb && (
+          <div className="fixed inset-0 z-50 flex justify-end">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+              onClick={() => setDocsKb(null)}
+            />
+            <motion.div
+              initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+              className="relative w-full max-w-3xl bg-white h-full shadow-2xl flex flex-col"
+            >
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                    {docsKb.name}
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    原文档台账
+                    {docsMeta.reindex_status && (
+                      <span className={`ml-2 px-2 py-0.5 rounded-full text-xs border ${docsMeta.reindex_status === 'ready' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : docsMeta.reindex_status === 'failed' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                        重建：{docsMeta.reindex_status}{docsMeta.reindexed_at ? `（${fmtDate(docsMeta.reindexed_at)}）` : ''}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={triggerReindex}
+                    disabled={reindexing || !docs || docs.length === 0 || docsMeta.reindex_status === 'reindexing'}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                    title="按当前 embedding/分块重建向量索引（从原文重新分块入库）"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${reindexing ? 'animate-spin' : ''}`} /> 重建索引
+                  </button>
+                  <button onClick={() => setDocsKb(null)} className="text-gray-400 hover:text-gray-600">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto p-6">
+                {reindexMsg && (
+                  <div className="mb-3 text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">{reindexMsg}</div>
+                )}
+                {docsLoading && <div className="text-sm text-gray-400 text-center py-8">加载中…</div>}
+                {docsError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{docsError}</div>}
+                {docs !== null && docs.length === 0 && !docsLoading && (
+                  <div className="text-sm text-gray-400 text-center py-12">
+                    暂无原文档。请在建库弹窗上传 TXT/Markdown/CSV/JSON 文件；上传后原文将持久化并可在此重建。
+                  </div>
+                )}
+                {docs && docs.length > 0 && (
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
+                        <th className="py-2 pr-3">文件名</th>
+                        <th className="py-2 pr-3">大小</th>
+                        <th className="py-2 pr-3">分块</th>
+                        <th className="py-2 pr-3">状态</th>
+                        <th className="py-2 pr-3">上传时间</th>
+                        <th className="py-2 pr-3 text-right">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {docs.map(d => {
+                        const badge = docStatusBadge(d.status);
+                        const persisted = !!(d.blob_ref && d.blob_ref.key);
+                        return (
+                          <tr key={d.doc_id} className="hover:bg-gray-50">
+                            <td className="py-2 pr-3 font-medium text-gray-900">
+                              <div className="flex items-center gap-1.5">
+                                <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                                <span className="truncate max-w-[200px]" title={d.filename}>{d.filename}</span>
+                              </div>
+                              {(d.skipped_reason || d.persist_warning) && (
+                                <div className="text-xs text-amber-600 mt-0.5 ml-5" title={d.skipped_reason || d.persist_warning}>
+                                  {d.skipped_reason || d.persist_warning}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2 pr-3 text-gray-600 whitespace-nowrap">{fmtSize(d.size)}</td>
+                            <td className="py-2 pr-3 text-gray-600">{d.chunks}</td>
+                            <td className="py-2 pr-3">
+                              <span className={`px-2 py-0.5 rounded-full text-xs border ${badge.cls}`}>{badge.label}</span>
+                            </td>
+                            <td className="py-2 pr-3 text-gray-500 whitespace-nowrap text-xs">{fmtDate(d.uploaded_at)}</td>
+                            <td className="py-2 pr-3 text-right whitespace-nowrap">
+                              {persisted ? (
+                                <a
+                                  href={api.kbDocumentRawUrl(docsKb.id, d.doc_id)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 text-sm font-medium"
+                                >
+                                  <Eye className="w-3.5 h-3.5" /> 预览
+                                </a>
+                              ) : (
+                                <span className="text-gray-300 text-xs">未留底</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+
       {/* Create KB Modal */}
       <AnimatePresence>
         {isCreateOpen && (
@@ -537,7 +720,7 @@ export default function KnowledgeBases() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-3">知识库类型</label>
                   <div className="grid grid-cols-2 gap-4">
-                    <button 
+                    <button
                       onClick={() => setKbType('vector')}
                       className={`p-4 border rounded-xl flex flex-col items-center gap-2 transition-colors ${
                         kbType === 'vector' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-blue-300 text-gray-600'
@@ -547,7 +730,7 @@ export default function KnowledgeBases() {
                       <span className="font-medium">向量数据库 (Vector DB)</span>
                       <span className="text-xs text-center opacity-80">适用于文档、PDF、图片等多模态非结构化数据，支持语义检索。</span>
                     </button>
-                    <button 
+                    <button
                       onClick={() => setKbType('graph')}
                       className={`p-4 border rounded-xl flex flex-col items-center gap-2 transition-colors ${
                         kbType === 'graph' ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-gray-200 hover:border-purple-300 text-gray-600'

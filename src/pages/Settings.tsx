@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Save, Server, Shield, Users, Key, Database, AlertTriangle, CheckCircle2, Copy, Upload, RefreshCw } from 'lucide-react';
+import { Save, Server, Shield, Users, Key, Database, AlertTriangle, CheckCircle2, Copy, Upload, RefreshCw, Boxes } from 'lucide-react';
 import { loadConfig, saveConfig, toEnvSnippet, toYamlSnippet, type RuntimeConfig } from '../api/config';
+import type { EmbeddingConfigPatch } from '../api/client';
 import { useRuntimeConfig } from '../api/hooks';
 import { api } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
@@ -45,6 +46,63 @@ export default function Settings() {
     loadFromBackend();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backend.data]);
+
+  // ── 向量化 / Embedding 配置表单 ──
+  type EmbForm = {
+    enabled: boolean; provider: string;
+    ollama: { base_url: string; model: string; dimension: number };
+    oneapi: { base_url: string; model: string; dimension: number; api_key: string };
+    fallback: { dimension: number };
+  };
+  const EMB_DEFAULT: EmbForm = {
+    enabled: true, provider: 'ollama',
+    ollama: { base_url: 'http://localhost:11434', model: 'nomic-embed-text', dimension: 768 },
+    oneapi: { base_url: '', model: 'text-embedding-3-small', dimension: 1536, api_key: '' },
+    fallback: { dimension: 128 },
+  };
+  const [emb, setEmb] = useState<EmbForm>(EMB_DEFAULT);
+  const [embLoaded, setEmbLoaded] = useState(false);
+  const [embSaving, setEmbSaving] = useState(false);
+  const [embMsg, setEmbMsg] = useState<string | null>(null);
+  const [oneapiKeyConfigured, setOneapiKeyConfigured] = useState(false);
+  useEffect(() => {
+    const e = backend.data?.embedding;
+    if (!e || embLoaded) return;
+    setEmb({
+      enabled: e.enabled, provider: e.provider,
+      ollama: { base_url: e.ollama.base_url, model: e.ollama.model, dimension: e.ollama.dimension },
+      oneapi: { base_url: e.oneapi.base_url, model: e.oneapi.model, dimension: e.oneapi.dimension, api_key: '' },
+      fallback: { dimension: e.fallback.dimension },
+    });
+    setOneapiKeyConfigured(!!e.oneapi.api_key_configured);
+    setEmbLoaded(true);
+  }, [backend.data, embLoaded]);
+  const activeDim = backend.data?.embedding?.active_dimension;
+  const configuredDim = emb.enabled
+    ? (emb.provider === 'ollama' ? emb.ollama.dimension : emb.provider === 'oneapi' ? emb.oneapi.dimension : emb.fallback.dimension)
+    : emb.fallback.dimension;
+  const dimMismatch = activeDim != null && configuredDim !== activeDim;
+  const saveEmbedding = async () => {
+    setEmbSaving(true); setEmbMsg(null);
+    try {
+      const patch: EmbeddingConfigPatch = {
+        enabled: emb.enabled, provider: emb.provider,
+        ollama: { ...emb.ollama },
+        oneapi: { base_url: emb.oneapi.base_url, model: emb.oneapi.model, dimension: emb.oneapi.dimension },
+        fallback: { ...emb.fallback },
+      };
+      if (emb.oneapi.api_key.trim()) patch.oneapi!.api_key = emb.oneapi.api_key.trim();
+      await api.updateConfig({ embedding: patch });
+      setEmbLoaded(false);
+      await backend.refresh();
+      setEmbMsg('✅ 已保存。Embedding 变更在服务重启后生效；若维度发生变化，请到「知识中心」对相关向量库执行「重建索引」。');
+    } catch (e: any) {
+      setEmbMsg(`❌ 保存失败：${e?.message ?? String(e)}`);
+    } finally {
+      setEmbSaving(false);
+      setTimeout(() => setEmbMsg(null), 8000);
+    }
+  };
 
   /** 保存到 localStorage（本地持久化）。 */
   const handleSave = () => {
@@ -107,6 +165,7 @@ export default function Settings() {
           <nav className="space-y-1">
             {[
               { id: 'llm', label: 'LLM 大模型网关', icon: Server },
+              { id: 'embedding', label: '向量化 / Embedding', icon: Boxes },
               { id: 'iam', label: 'IAM 身份与访问', icon: Users },
               { id: 'security', label: '安全与合规策略', icon: Shield },
               { id: 'storage', label: '数据存储与备份', icon: Database },
@@ -558,6 +617,110 @@ export default function Settings() {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tab: Embedding / 向量化 */}
+          {activeTab === 'embedding' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-bold text-gray-900">向量化 / Embedding 配置</h2>
+                  <LiveBadge live={backend.live} loading={backend.loading} error={backend.error} />
+                </div>
+                <div className="flex items-center gap-2">
+                  {backend.live && (
+                    <button
+                      onClick={() => { setEmbLoaded(false); backend.refresh(); }}
+                      className="border border-gray-300 text-gray-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-2"
+                      title="从后端重新加载当前生效配置"
+                    >
+                      <RefreshCw className="w-4 h-4" /> 从后端刷新
+                    </button>
+                  )}
+                  <button
+                    onClick={saveEmbedding}
+                    disabled={embSaving || !backend.live}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 flex items-center gap-2"
+                  >
+                    <Save className="w-4 h-4" /> {embSaving ? '保存中…' : '保存并生效'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>
+                  Embedding 变更在服务<strong>重启后</strong>生效。若<strong>维度</strong>或 <strong>provider</strong> 变化，存量向量将与新模型不匹配，
+                  须到「知识中心」对相关向量库执行<strong>「重建索引」</strong>（从原文重新分块嵌入）。
+                </span>
+              </div>
+
+              {dimMismatch && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700">
+                  当前生效维度为 <strong>{activeDim}</strong>，配置维度为 <strong>{configuredDim}</strong>：保存并重启后需重建索引。
+                </div>
+              )}
+
+              <div className="space-y-5 max-w-2xl">
+                <label className="flex items-center gap-3">
+                  <input type="checkbox" checked={emb.enabled}
+                    onChange={e => setEmb(p => ({ ...p, enabled: e.target.checked }))}
+                    className="w-4 h-4" />
+                  <span className="text-sm font-medium text-gray-800">启用 Embedding（关闭则回退内置确定性向量，仅用于离线/降级）</span>
+                </label>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+                  <select value={emb.provider}
+                    onChange={e => setEmb(p => ({ ...p, provider: e.target.value }))}
+                    disabled={!emb.enabled}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm disabled:bg-gray-100">
+                    <option value="ollama">ollama（本地/私有）</option>
+                    <option value="oneapi">oneapi（OpenAI 兼容网关）</option>
+                    <option value="fallback">fallback（内置确定性向量）</option>
+                  </select>
+                </div>
+
+                {emb.enabled && emb.provider === 'ollama' && (
+                  <div className="grid grid-cols-1 gap-3 border border-gray-200 rounded-lg p-4">
+                    <p className="text-xs font-semibold text-gray-500">Ollama</p>
+                    <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="base_url"
+                      value={emb.ollama.base_url} onChange={e => setEmb(p => ({ ...p, ollama: { ...p.ollama, base_url: e.target.value } }))} />
+                    <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="model"
+                      value={emb.ollama.model} onChange={e => setEmb(p => ({ ...p, ollama: { ...p.ollama, model: e.target.value } }))} />
+                    <input type="number" className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="dimension"
+                      value={emb.ollama.dimension} onChange={e => setEmb(p => ({ ...p, ollama: { ...p.ollama, dimension: Number(e.target.value) || 0 } }))} />
+                  </div>
+                )}
+
+                {emb.enabled && emb.provider === 'oneapi' && (
+                  <div className="grid grid-cols-1 gap-3 border border-gray-200 rounded-lg p-4">
+                    <p className="text-xs font-semibold text-gray-500">OneAPI（OpenAI 兼容）</p>
+                    <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="base_url"
+                      value={emb.oneapi.base_url} onChange={e => setEmb(p => ({ ...p, oneapi: { ...p.oneapi, base_url: e.target.value } }))} />
+                    <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="model"
+                      value={emb.oneapi.model} onChange={e => setEmb(p => ({ ...p, oneapi: { ...p.oneapi, model: e.target.value } }))} />
+                    <input type="number" className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="dimension"
+                      value={emb.oneapi.dimension} onChange={e => setEmb(p => ({ ...p, oneapi: { ...p.oneapi, dimension: Number(e.target.value) || 0 } }))} />
+                    <input type="password" className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      placeholder={oneapiKeyConfigured ? '（已配置，留空则不修改）' : 'api_key'}
+                      value={emb.oneapi.api_key} onChange={e => setEmb(p => ({ ...p, oneapi: { ...p.oneapi, api_key: e.target.value } }))} />
+                  </div>
+                )}
+
+                {(!emb.enabled || emb.provider === 'fallback') && (
+                  <div className="grid grid-cols-1 gap-3 border border-gray-200 rounded-lg p-4">
+                    <p className="text-xs font-semibold text-gray-500">Fallback（内置确定性向量）</p>
+                    <input type="number" className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="dimension"
+                      value={emb.fallback.dimension} onChange={e => setEmb(p => ({ ...p, fallback: { dimension: Number(e.target.value) || 0 } }))} />
+                  </div>
+                )}
+
+                {embMsg && (
+                  <div className={`text-sm rounded-lg px-3 py-2 ${embMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{embMsg}</div>
+                )}
               </div>
             </div>
           )}
