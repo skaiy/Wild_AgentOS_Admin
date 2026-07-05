@@ -92,10 +92,11 @@ export default function Settings() {
         fallback: { ...emb.fallback },
       };
       if (emb.oneapi.api_key.trim()) patch.oneapi!.api_key = emb.oneapi.api_key.trim();
-      await api.updateConfig({ embedding: patch });
+      const res = await api.updateConfig({ embedding: patch });
       setEmbLoaded(false);
       await backend.refresh();
-      setEmbMsg('✅ 已保存。Embedding 变更在服务重启后生效；若维度发生变化，请到「知识中心」对相关向量库执行「重建索引」。');
+      // 后端已热切换向量库并自动排队重建，直接反馈其返回的结果说明。
+      setEmbMsg(`✅ ${res.message ?? '已保存并即时生效。'}`);
     } catch (e: any) {
       setEmbMsg(`❌ 保存失败：${e?.message ?? String(e)}`);
     } finally {
@@ -652,14 +653,15 @@ export default function Settings() {
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                 <span>
-                  Embedding 变更在服务<strong>重启后</strong>生效。若<strong>维度</strong>或 <strong>provider</strong> 变化，存量向量将与新模型不匹配，
-                  须到「知识中心」对相关向量库执行<strong>「重建索引」</strong>（从原文重新分块嵌入）。
+                  保存后 Embedding <strong>即时生效（免重启热切换）</strong>。由于存量向量由旧模型生成，
+                  保存时会<strong>自动换库并后台重建所有向量库索引</strong>（从原文重新分块嵌入）；
+                  重建期间相关库的语义检索可能暂时召回不全，完成后自动恢复。<strong>无原文台账</strong>的存量库无法重建，需重新上传。
                 </span>
               </div>
 
               {dimMismatch && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700">
-                  当前生效维度为 <strong>{activeDim}</strong>，配置维度为 <strong>{configuredDim}</strong>：保存并重启后需重建索引。
+                  当前生效维度为 <strong>{activeDim}</strong>，配置维度为 <strong>{configuredDim}</strong>：保存后将换到新维度并自动重建索引。
                 </div>
               )}
 

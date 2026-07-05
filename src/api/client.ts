@@ -200,7 +200,7 @@ export interface McpServer {
 }
 export interface McpServersResponse { count: number; servers: McpServer[] }
 export interface NodeWriteResponse { node_iri: string; accepted: boolean }
-export interface ConfigUpdateResponse { status: string; message: string; config: RuntimeConfigInfo }
+export interface ConfigUpdateResponse { status: string; message: string; config: RuntimeConfigInfo; persisted?: boolean; embedding_reloaded?: boolean; reindex_queued?: number }
 
 // ── G6' Prompt/模型灰度版本 ──
 export interface PromptVersion {
