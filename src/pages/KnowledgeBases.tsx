@@ -73,20 +73,61 @@ export default function KnowledgeBases() {
   const [kbCategoryId, setKbCategoryId] = useState('');
   const [creating, setCreating] = useState(false);
   const [createErr, setCreateErr] = useState<string | null>(null);
+  // 摄取相关：向量库分块策略与文件；图谱库 schema 与文件；两段式结果
+  const [chunkStrategy, setChunkStrategy] = useState('semantic');
+  const [vectorFiles, setVectorFiles] = useState<File[]>([]);
+  const [graphSchema, setGraphSchema] = useState('');
+  const [graphFile, setGraphFile] = useState<File | null>(null);
+  const [ingestMsg, setIngestMsg] = useState<string | null>(null);
+  const [justCreated, setJustCreated] = useState(false);
+
+  const resetCreateForm = () => {
+    setKbName(''); setKbDesc(''); setKbCategoryId('');
+    setChunkStrategy('semantic'); setVectorFiles([]); setGraphSchema(''); setGraphFile(null);
+    setIngestMsg(null); setJustCreated(false); setCreateErr(null);
+  };
+  const closeCreate = () => { setIsCreateOpen(false); resetCreateForm(); };
 
   const submitCreateKb = async () => {
     if (!kbName.trim()) { setCreateErr('请填写知识库名称'); return; }
-    setCreating(true); setCreateErr(null);
+    setCreating(true); setCreateErr(null); setIngestMsg(null);
     try {
-      await api.createKnowledgeBase({
+      const res = await api.createKnowledgeBase({
         name: kbName.trim(),
         description: kbDesc.trim(),
         kb_type: kbType,
         category_id: kbCategoryId || undefined,
       });
-      setIsCreateOpen(false);
-      setKbName(''); setKbDesc(''); setKbCategoryId('');
+      const newId = res.id;
+      // 第二段：按类型摄取（有文件/schema 才触发；失败不影响已建库）
+      if (kbType === 'vector' && vectorFiles.length > 0) {
+        setIngestMsg('正在上传并索引文件…');
+        const up = await api.uploadKbFiles(newId, vectorFiles, { chunk_strategy: chunkStrategy });
+        const skipped = up.files.filter(f => f.skipped_reason);
+        let msg = `已写入 ${up.total_chunks} 个分块（应用策略：${up.chunk_strategy_applied}）`;
+        if (skipped.length) {
+          msg += `；${skipped.length} 个文件跳过：` +
+            skipped.map(f => `${f.name}（${f.skipped_reason}）`).join('；');
+        }
+        setIngestMsg(msg);
+      } else if (kbType === 'graph' && (graphFile || graphSchema.trim())) {
+        setIngestMsg('正在导入三元组…');
+        const imp = await api.importKbGraph(newId, {
+          file: graphFile ?? undefined,
+          schema: graphSchema.trim() || undefined,
+        });
+        setIngestMsg(
+          `已写入 ${imp.triples_written} 条三元组（实体 ${imp.entities} · 关系 ${imp.relations}` +
+          `${imp.schema_saved ? ' · schema 已保存' : ''}）${imp.note ? '；' + imp.note : ''}`,
+        );
+      }
+      setJustCreated(true);
       knowledgeBases.refresh();
+      // 无摄取步骤则直接关闭；有结果则保留弹窗供用户查看
+      if (!(kbType === 'vector' && vectorFiles.length > 0) &&
+          !(kbType === 'graph' && (graphFile || graphSchema.trim()))) {
+        closeCreate();
+      }
     } catch (e: any) {
       setCreateErr(e?.message ?? String(e));
     } finally { setCreating(false); }
@@ -453,18 +494,18 @@ export default function KnowledgeBases() {
       <AnimatePresence>
         {isCreateOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-              onClick={() => setIsCreateOpen(false)}
+              onClick={closeCreate}
             />
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} 
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden relative z-10 flex flex-col"
             >
               <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
                 <h2 className="text-lg font-bold text-gray-900">新建知识库</h2>
-                <button onClick={() => setIsCreateOpen(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
+                <button onClick={closeCreate} className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -539,19 +580,46 @@ export default function KnowledgeBases() {
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">文档分块策略 (Chunking)</label>
-                      <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
-                        <option>智能语义分块 (推荐)</option>
-                        <option>固定长度 (500 Tokens)</option>
-                        <option>按段落/标题分割</option>
+                      <select
+                        value={chunkStrategy}
+                        onChange={e => setChunkStrategy(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                      >
+                        <option value="semantic">智能语义分块 (推荐)</option>
+                        <option value="fixed">固定长度 (500 字符)</option>
+                        <option value="heading">按段落/标题分割</option>
                       </select>
+                      <p className="text-xs text-gray-400 mt-1">当前后端统一按固定长度分块，语义/标题策略将逐步启用（结果以返回的「应用策略」为准）。</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">上传文档源</label>
-                      <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-blue-400 transition-colors cursor-pointer">
+                      <label className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-blue-400 transition-colors cursor-pointer block">
+                        <input
+                          type="file"
+                          multiple
+                          accept=".txt,.md,.markdown,.csv,.json,.jsonl,.log"
+                          className="hidden"
+                          onChange={e => setVectorFiles(Array.from(e.target.files ?? []))}
+                        />
                         <UploadCloud className="w-8 h-8 mb-2 text-gray-400" />
-                        <p className="text-sm font-medium text-gray-700">点击或拖拽文件到此处</p>
-                        <p className="text-xs mt-1">支持 PDF, Word, TXT, Markdown (最大 50MB/文件)</p>
-                      </div>
+                        <p className="text-sm font-medium text-gray-700">点击选择文件</p>
+                        <p className="text-xs mt-1">支持 TXT / Markdown / CSV / JSON（PDF、Word 暂不支持解析，将被跳过）</p>
+                      </label>
+                      {vectorFiles.length > 0 && (
+                        <ul className="mt-2 space-y-1">
+                          {vectorFiles.map((f, i) => (
+                            <li key={i} className="flex items-center justify-between text-xs bg-gray-50 border border-gray-200 rounded-md px-2 py-1">
+                              <span className="truncate">{f.name} · {(f.size / 1024).toFixed(1)} KB</span>
+                              <button
+                                onClick={() => setVectorFiles(vectorFiles.filter((_, j) => j !== i))}
+                                className="text-gray-400 hover:text-red-500 ml-2 shrink-0"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   </motion.div>
                 )}
@@ -559,33 +627,67 @@ export default function KnowledgeBases() {
                 {kbType === 'graph' && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">图谱 Schema 定义 (JSON/YAML)</label>
-                      <textarea className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono" rows={4} placeholder="定义实体(Entity)和关系(Relation)的结构..."></textarea>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">图谱 Schema 定义（可选）</label>
+                      <textarea
+                        value={graphSchema}
+                        onChange={e => setGraphSchema(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 outline-none font-mono"
+                        rows={4}
+                        placeholder="定义实体(Entity)和关系(Relation)的结构（将作为命名图元三元组保存）..."
+                      ></textarea>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">导入三元组数据 (CSV / Cypher)</label>
-                      <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-purple-400 transition-colors cursor-pointer">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">导入三元组数据</label>
+                      <label className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 hover:bg-gray-50 hover:border-purple-400 transition-colors cursor-pointer block">
+                        <input
+                          type="file"
+                          accept=".csv,.jsonl,.json,.nt,.ttl,.triples"
+                          className="hidden"
+                          onChange={e => setGraphFile(e.target.files?.[0] ?? null)}
+                        />
                         <UploadCloud className="w-8 h-8 mb-2 text-gray-400" />
                         <p className="text-sm font-medium text-gray-700">上传结构化数据文件</p>
-                        <p className="text-xs mt-1">支持 CSV, JSONL, Cypher 脚本</p>
-                      </div>
+                        <p className="text-xs mt-1">支持 CSV（subject,predicate,object[,object_type]）/ JSONL / N-Triples</p>
+                      </label>
+                      {graphFile && (
+                        <div className="mt-2 flex items-center justify-between text-xs bg-gray-50 border border-gray-200 rounded-md px-2 py-1">
+                          <span className="truncate">{graphFile.name} · {(graphFile.size / 1024).toFixed(1)} KB</span>
+                          <button onClick={() => setGraphFile(null)} className="text-gray-400 hover:text-red-500 ml-2 shrink-0">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </motion.div>
+                )}
+
+                {ingestMsg && (
+                  <div className={`text-sm rounded-lg px-3 py-2 border ${justCreated ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                    {ingestMsg}
+                  </div>
                 )}
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end items-center gap-3">
                 {createErr && <span className="text-sm text-red-600 mr-auto">{createErr}</span>}
-                <button onClick={() => setIsCreateOpen(false)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                  取消
-                </button>
-                <button
-                  onClick={submitCreateKb}
-                  disabled={creating || !kbName.trim()}
-                  className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-40 ${kbType === 'vector' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
-                >
-                  {creating ? '创建中…' : '创建并开始索引'}
-                </button>
+                {justCreated ? (
+                  <button onClick={closeCreate} className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">
+                    完成
+                  </button>
+                ) : (
+                  <>
+                    <button onClick={closeCreate} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                      取消
+                    </button>
+                    <button
+                      onClick={submitCreateKb}
+                      disabled={creating || !kbName.trim()}
+                      className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-40 ${kbType === 'vector' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-purple-600 hover:bg-purple-700'}`}
+                    >
+                      {creating ? '创建中…' : '创建并开始索引'}
+                    </button>
+                  </>
+                )}
               </div>
             </motion.div>
           </div>

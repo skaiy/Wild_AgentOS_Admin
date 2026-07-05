@@ -27,6 +27,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** multipart/form-data 请求：不手动设置 Content-Type（由浏览器生成 boundary），
+ *  统一附带管理台身份头以通过后端角色校验。 */
+async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  const base = getBackendBase();
+  const res = await fetch(`${base}${path}`, {
+    method: 'POST',
+    body: form,
+    headers: { 'X-Identity': adminIdentityHeader() },
+  });
+  const text = await res.text();
+  const body = text ? safeJson(text) : null;
+  if (!res.ok) {
+    const msg = (body && (body.error || body.message)) || res.statusText;
+    throw new ApiError(msg || `HTTP ${res.status}`, res.status);
+  }
+  return body as T;
+}
+
 export function safeJson(text: string): any {
   try { return JSON.parse(text); } catch { return text; }
 }
@@ -210,6 +228,20 @@ export interface KnowledgeBase {
 export interface KnowledgeBasesResponse { count: number; bases: KnowledgeBase[] }
 export interface KnowledgeBaseCreatePayload {
   name: string; description?: string; kb_type: KbType; category_id?: string;
+}
+/** 向量库文件上传逐文件结果：skipped_reason 存在表示该文件未摄取（如暂无 PDF/Word 解析器）。 */
+export interface KbUploadFileResult { name: string; chunks: number; skipped_reason?: string }
+/** 向量库文件上传响应：chunk_strategy_applied 为后端实际应用策略（当前仅 fixed）。 */
+export interface KbUploadResponse {
+  status: string; namespace: string; total_chunks: number;
+  chunk_size: number; chunk_strategy_requested: string; chunk_strategy_applied: string;
+  files: KbUploadFileResult[];
+}
+/** 图谱库三元组导入响应。 */
+export interface KbImportGraphResponse {
+  status: string; graph: string; format: string;
+  triples_written: number; entities: number; relations: number;
+  schema_saved: boolean; note?: string;
 }
 
 // ── 本体层（Ontology Layer）只读元模型 ──
@@ -513,6 +545,31 @@ export const api = {
     request<{ status: string; chunks: number; namespace: string }>(`/api/v1/kb/bases/${encodeURIComponent(id)}/ingest`, {
       method: 'POST', body: JSON.stringify(payload),
     }),
+  /** 向量知识库文件上传（multipart）：TXT/MD/CSV/JSON 等纯文本分块→embedding→写入。 */
+  uploadKbFiles: (
+    id: string,
+    files: File[],
+    opts?: { chunk_size?: number; chunk_strategy?: string; min_importance?: number },
+  ) => {
+    const fd = new FormData();
+    files.forEach(f => fd.append('file', f));
+    if (opts?.chunk_size != null) fd.append('chunk_size', String(opts.chunk_size));
+    if (opts?.chunk_strategy) fd.append('chunk_strategy', opts.chunk_strategy);
+    if (opts?.min_importance != null) fd.append('min_importance', String(opts.min_importance));
+    return requestForm<KbUploadResponse>(`/api/v1/kb/bases/${encodeURIComponent(id)}/upload`, fd);
+  },
+  /** 图谱知识库三元组导入（multipart）：CSV/JSONL/triples → 写入命名图；可选 schema。 */
+  importKbGraph: (
+    id: string,
+    opts: { file?: File; format?: string; schema?: string; clear_before?: boolean },
+  ) => {
+    const fd = new FormData();
+    if (opts.file) fd.append('file', opts.file);
+    if (opts.format) fd.append('format', opts.format);
+    if (opts.schema) fd.append('schema', opts.schema);
+    if (opts.clear_before) fd.append('clear_before', 'true');
+    return requestForm<KbImportGraphResponse>(`/api/v1/kb/bases/${encodeURIComponent(id)}/import-graph`, fd);
+  },
   // ── 本体层（Ontology Layer）只读元模型 ──
   knowledgePacks: () => request<KnowledgePacksResponse>('/api/v1/knowledge-packs'),
   createKnowledgePack: (payload: KnowledgePackCreatePayload) =>
