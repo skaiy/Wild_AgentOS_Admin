@@ -1,7 +1,42 @@
 import { useState, useEffect } from 'react';
+import type { ReactNode } from 'react';
+import { isValidElement } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { BookOpen, Loader2 } from 'lucide-react';
+
+/**
+ * 页内锚点 slug（确定性）：与源/在线手册目录里的 [文案](#slug) 保持同一算法，
+ * 从而中文标题（含全角空格）也能精确命中。规则：小写 → 空白（含全角 U+3000）转连字符
+ * → 仅保留字母/数字/下划线/中日韩汉字/连字符 → 折叠多余连字符。
+ */
+function slugify(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[\s\u3000]+/g, '-')
+    .replace(/[^\w\u4e00-\u9fa5-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** 递归提取 ReactMarkdown 传入标题的纯文本，用于生成锚点 id。 */
+function textOf(children: ReactNode): string {
+  if (typeof children === 'string' || typeof children === 'number') return String(children);
+  if (Array.isArray(children)) return children.map(textOf).join('');
+  if (isValidElement(children)) return textOf((children.props as { children?: ReactNode }).children);
+  return '';
+}
+
+/** 生成带确定性 id 的标题组件；scroll-mt 让锚点跳转不被页面顶部遮挡。 */
+const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4') =>
+  function Heading({ children, ...props }: { children?: ReactNode }) {
+    return (
+      <Tag id={slugify(textOf(children))} className="scroll-mt-24" {...props}>
+        {children}
+      </Tag>
+    );
+  };
 
 export default function OperationsManual() {
   const [content, setContent] = useState('');
@@ -64,6 +99,34 @@ export default function OperationsManual() {
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               components={{
+                h1: heading('h1'),
+                h2: heading('h2'),
+                h3: heading('h3'),
+                h4: heading('h4'),
+                // 页内锚点：本控制台为 hash 路由（/#manual），原生 #anchor 会篡改路由，
+                // 故拦截 # 开头链接改为 JS 平滑滚动；外链新开页签。
+                a: ({ href, children, ...props }) => {
+                  if (href && href.startsWith('#')) {
+                    return (
+                      <a
+                        href={href}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          const el = document.getElementById(decodeURIComponent(href.slice(1)));
+                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                        {...props}
+                      >
+                        {children}
+                      </a>
+                    );
+                  }
+                  return (
+                    <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
+                      {children}
+                    </a>
+                  );
+                },
                 img: ({ node, ...props }) => (
                   <img
                     {...props}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, X, Plus, Save, Send, Bot, User, Smartphone, Monitor, MessageSquare, Link as LinkIcon, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles, Rocket } from 'lucide-react';
+import { Settings, X, Plus, Save, Send, Bot, User, Smartphone, Monitor, MessageSquare, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles, Rocket } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useHealth, useAgents, useSkills, useMcpServers, useRuntimeConfig, useKnowledgePacks } from '../api/hooks';
@@ -22,34 +22,27 @@ export default function AgentManagement() {
   const [testingAgent, setTestingAgent] = useState<any>(null);
   const [publishAgent, setPublishAgent] = useState<any>(null);
   // skills 改为 string[] 存储选中的 skill_iri 列表
-  const [form, setForm] = useState({ name: '', description: '', business_domain: '', skills: [] as string[], knowledge_graph: '', knowledge_pack_ids: [] as string[], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
+  const [form, setForm] = useState({ name: '', description: '', business_domain: '', skills: [] as string[], knowledge_pack_ids: [] as string[], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  // 测试对话：基于该 Agent 绑定知识图谱的检索增强问答（POST /api/v1/agents/:id/chat）
+  // 测试对话：基于该 Agent 挂载知识包的检索增强问答（POST /api/v1/agents/:id/chat）
   const [chat, setChat] = useState<{ role: 'user' | 'agent' | 'system'; content: string; actions?: SuggestedAction[] }[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   // 决策层（Phase 4）：点击建议动作后弹出的占位提示（工单系统规划中）
   const [pendingAction, setPendingAction] = useState<SuggestedAction | null>(null);
-  // G5：知识库绑定弹窗状态
-  const [graphBindAgent, setGraphBindAgent] = useState<any>(null);
-  const [graphSelection, setGraphSelection] = useState('');
-  const [graphDesc, setGraphDesc] = useState('');
-  const [graphBinding, setGraphBinding] = useState(false);
-  const [graphMsg, setGraphMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const openModal = (type: 'create' | 'edit', agent: any = null) => {
     setSelectedAgent(agent);
     setActionError(null);
     if (type === 'create') {
-      setForm({ name: '', description: '', business_domain: '', skills: [], knowledge_graph: '', knowledge_pack_ids: [], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
+      setForm({ name: '', description: '', business_domain: '', skills: [], knowledge_pack_ids: [], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
     } else if (type === 'edit') {
       setForm({
         name: agent?.name ?? '',
         description: agent?.description ?? '',
         business_domain: agent?.business_domain ?? '',
         skills: Array.isArray(agent?.skills) ? agent.skills : [],
-        knowledge_graph: agent?.knowledge_graph ?? '',
         knowledge_pack_ids: Array.isArray(agent?.knowledge_pack_ids) ? agent.knowledge_pack_ids : [],
         icon: agent?.icon ?? 'Bot',
         color: agent?.color ?? 'bg-blue-500',
@@ -95,10 +88,6 @@ export default function AgentManagement() {
   const allAgents = agentsState.data?.agents ?? [];
   const batchAgents = allAgents.filter((a) => a.source !== 'user');
   const userAgents = allAgents.filter((a) => a.source === 'user');
-  // 已绑定图谱建议列表：来自真实智能体的 knowledge_graph 字段去重
-  const graphSuggestions = Array.from(
-    new Set(allAgents.map((a) => a.knowledge_graph).filter((g): g is string => !!g)),
-  );
 
   // 切换测试对象时重置对话
   useEffect(() => {
@@ -145,7 +134,6 @@ export default function AgentManagement() {
         name: form.name.trim(),
         description: form.description.trim() || undefined,
         business_domain: form.business_domain.trim() || undefined,
-        knowledge_graph: form.knowledge_graph.trim() || undefined,
         knowledge_pack_ids: form.knowledge_pack_ids,
         skills: form.skills,
         icon: form.icon,
@@ -173,24 +161,6 @@ export default function AgentManagement() {
       agentsState.refresh();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  // G5：绑定知识图谱
-  const handleBindGraph = async () => {
-    if (!graphSelection) { setGraphMsg({ ok: false, text: '请选择一个知识图谱' }); return; }
-    if (!graphBindAgent?.id) { setGraphMsg({ ok: false, text: '智能体 ID 缺失' }); return; }
-    setGraphBinding(true);
-    setGraphMsg(null);
-    try {
-      await api.bindAgentGraph(graphBindAgent.id, { graph: graphSelection, description: graphDesc });
-      agentsState.refresh();
-      setGraphMsg({ ok: true, text: `知识图谱「${graphSelection}」已绑定` });
-      setTimeout(() => { setGraphBindAgent(null); setGraphMsg(null); }, 1500);
-    } catch (e: any) {
-      setGraphMsg({ ok: false, text: e.message });
-    } finally {
-      setGraphBinding(false);
     }
   };
 
@@ -262,9 +232,6 @@ export default function AgentManagement() {
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => { setGraphBindAgent(a); setGraphSelection(a.knowledge_graph ?? ''); setGraphDesc(''); }} className="text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100" title="绑定知识库">
-                      <LinkIcon className="w-4 h-4" />
-                    </button>
                     <button onClick={() => setTestingAgent(a)} className="text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100" title="测试对话">
                       <MessageSquare className="w-4 h-4" />
                     </button>
@@ -660,63 +627,6 @@ export default function AgentManagement() {
             onClose={() => setPublishAgent(null)}
             onChanged={() => agentsState.refresh()}
           />
-        )}
-      </AnimatePresence>
-
-      {/* G5：知识库可视化绑定弹窗 */}
-      <AnimatePresence>
-        {graphBindAgent && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <LinkIcon className="w-5 h-5 text-gray-600" />
-                  <h2 className="font-semibold text-gray-900">绑定知识图谱</h2>
-                </div>
-                <button onClick={() => setGraphBindAgent(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
-              </div>
-              <div className="text-sm text-gray-500">
-                为智能体 <span className="font-medium text-gray-800">「{graphBindAgent.name}」</span> 选择命名知识图谱。
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-gray-500">知识图谱命名（named graph）</label>
-                <input value={graphSelection} onChange={e => setGraphSelection(e.target.value)}
-                  list="kg-graph-suggestions" placeholder="例如：aps/faults 或 iri://kg/battery_repair"
-                  className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-gray-400 bg-white" />
-                <datalist id="kg-graph-suggestions">
-                  {graphSuggestions.map((g) => (
-                    <option key={g} value={g} />
-                  ))}
-                </datalist>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs text-gray-500">描述（可选）</label>
-                <input value={graphDesc} onChange={e => setGraphDesc(e.target.value)}
-                  placeholder="例如：电池故障专项知识库 v2.0"
-                  className="w-full border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-gray-400" />
-              </div>
-              {graphMsg && (
-                <div className={`text-sm px-3 py-2 rounded border ${graphMsg.ok ? 'bg-gray-50 border-gray-200 text-gray-700' : 'bg-red-50 border-red-200 text-red-600'}`}>
-                  {graphMsg.text}
-                </div>
-              )}
-              <div className="flex gap-3 pt-1">
-                <button onClick={handleBindGraph} disabled={graphBinding}
-                  className="flex-1 py-2 bg-gray-900 text-white text-sm rounded hover:bg-gray-700 disabled:opacity-50 transition-colors">
-                  {graphBinding ? '绑定中…' : '确认绑定'}
-                </button>
-                <button onClick={() => setGraphBindAgent(null)}
-                  className="flex-1 py-2 border border-gray-200 text-sm rounded hover:bg-gray-50 transition-colors">
-                  取消
-                </button>
-              </div>
-            </motion.div>
-          </div>
         )}
       </AnimatePresence>
 

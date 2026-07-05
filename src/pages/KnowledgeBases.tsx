@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Database, Search, Plus, X, UploadCloud, Share2, ChevronRight, Play, Tag, Pencil, Trash2, Check, Network, List } from 'lucide-react';
-import { useAgents, useKbCategories, useKnowledgeBases } from '../api/hooks';
+import { useKbCategories, useKnowledgeBases } from '../api/hooks';
 import { api, type KbCategory } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import KgGraph from '../components/KgGraph';
@@ -26,8 +26,7 @@ export default function KnowledgeBases() {
   const catList = categories.data?.categories ?? [];
   const catName = (id: string) => catList.find(c => c.id === id)?.name ?? '';
 
-  // 知识库列表：持久化知识库 + 已绑定知识图谱的智能体
-  const agents = useAgents();
+  // 知识库列表：持久化知识库（向量/图）
   const kbRows = [
     ...(knowledgeBases.data?.bases ?? []).map(b => ({
       name: b.name,
@@ -42,21 +41,6 @@ export default function KnowledgeBases() {
       id: b.id,
       isGraph: b.kb_type === 'graph' && !!b.graph,
     })),
-    ...(agents.data?.agents ?? [])
-      .filter(a => a.knowledge_graph)
-      .map(a => ({
-        name: a.name,
-        graph: a.knowledge_graph as string,
-        namespace: '',
-        source: `智能体绑定 · ${a.name}`,
-        kbType: 'graph',
-        category: '',
-        description: '',
-        createdBy: '',
-        createdAt: '',
-        id: '',
-        isGraph: true,
-      })),
   ];
 
   // 按 Tab（向量/图）划分，并按名称/命名空间/命名图做前端搜索过滤。
@@ -345,7 +329,7 @@ export default function KnowledgeBases() {
             {activeRows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-6 py-10 text-center text-gray-400">
-                  {knowledgeBases.live || agents.live
+                  {knowledgeBases.live
                     ? (kbSearch.trim() ? '无匹配的知识库' : `暂无${kbTab === 'graph' ? '图谱' : '向量'}知识库，请点击「新建知识库」创建`)
                     : '后端离线，无法加载知识库列表'}
                 </td>

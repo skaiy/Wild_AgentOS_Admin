@@ -144,7 +144,7 @@ export interface RuntimeConfigInfo {
 }
 export interface AgentInfo {
   name: string; description: string; enabled: boolean; business_domain: string;
-  id?: string; skills?: string[]; knowledge_graph?: string;
+  id?: string; skills?: string[];
   knowledge_pack_ids?: string[];
   source?: string; created_at?: string; updated_at?: string;
   icon?: string; color?: string;
@@ -157,7 +157,7 @@ export interface AgentsResponse {
 }
 export interface AgentCreatePayload {
   name: string; description?: string; business_domain?: string;
-  skills?: string[]; knowledge_graph?: string; enabled?: boolean;
+  skills?: string[]; enabled?: boolean;
   knowledge_pack_ids?: string[];
   icon?: string; color?: string;
   published?: boolean;
@@ -206,10 +206,6 @@ export interface ResolvedPrompt {
   version_id: string; name: string; template: string; model: string; is_canary: boolean;
 }
 export interface CanaryRequest { percent: number; tenant_ids?: string[]; roles?: string[] }
-
-// ── G5 KG 绑定 ──
-export interface BindGraphRequest { graph: string; description?: string }
-export interface BindGraphResponse { status: string; agent_id: string; graph: string; agent: AgentInfo; bound_by: string }
 
 // ── 知识库分类 + 知识库 ──
 export interface KbCategory {
@@ -485,12 +481,7 @@ export const api = {
     request<{ id: string; status: string }>('/api/v1/mcp/servers', {
       method: 'POST', body: JSON.stringify({ name, description, endpoint, protocol }),
     }),
-  // ── G5 KG 绑定 ──
-  bindAgentGraph: (id: string, payload: BindGraphRequest) =>
-    request<BindGraphResponse>(`/api/v1/agents/${encodeURIComponent(id)}/graph`, {
-      method: 'POST', body: JSON.stringify(payload),
-    }),
-  // ── 智能体 RAG 问答（基于绑定知识图谱检索 + LLM 网关）──
+  // ── 智能体 RAG 问答（基于挂载知识包检索 + LLM 网关）──
   agentChat: (id: string, message: string) =>
     request<AgentChatResponse>(`/api/v1/agents/${encodeURIComponent(id)}/chat`, {
       method: 'POST', body: JSON.stringify({ message }),
