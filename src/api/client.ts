@@ -510,6 +510,12 @@ export const api = {
       // 管理台以 DA 角色注册技能（严格鉴权模式下仍可用；非严格模式匿名亦放行）。
       headers: { 'X-Identity': adminIdentityHeader() },
     }),
+  /** 删除应用级技能（skill://）；系统级内置（iri://）后端拒绝，返回 403。 */
+  deleteSkill: (iri: string) =>
+    request<SkillRegisterResponse>(`/api/v1/skills?iri=${encodeURIComponent(iri)}`, {
+      method: 'DELETE',
+      headers: { 'X-Identity': adminIdentityHeader() },
+    }),
   /** 获取指定技能的 skill.yaml 文本（后端依据元数据实时生成）。 */
   skillManifest: (iri: string) =>
     request<string>(`/api/v1/skills/manifest?iri=${encodeURIComponent(iri)}`),
