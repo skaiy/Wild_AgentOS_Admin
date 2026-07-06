@@ -84,7 +84,7 @@ export default function ModelResources() {
       }),
     );
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     setSaving(true); setMsg(null);
     try {
       // api_key 留空的 provider 剔除该字段，交由后端按 id 回填旧值（避免误清空）。
@@ -96,8 +96,10 @@ export default function ModelResources() {
       setLoaded(false);
       await backend.refresh();
       setMsg('✅ 已保存并热更新（免重启即时生效）');
+      return true;
     } catch (e: any) {
       setMsg(`❌ ${e?.message ?? String(e)}`);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -106,6 +108,12 @@ export default function ModelResources() {
   const runTest = async (r: ModelResourceInfo) => {
     const modality = r.modalities?.[0] || 'chat';
     setTests((t) => ({ ...t, [r.id]: { ok: false, http_status: 0, latency_ms: 0, pending: true } }));
+    // 连通性测试读取「已持久化」注册表；先保存本地编辑态，避免未保存型号误报「provider 未找到」。
+    const saved = await save();
+    if (!saved) {
+      setTests((t) => { const n = { ...t }; delete n[r.id]; return n; });
+      return;
+    }
     try {
       const res = await api.testModelResource({ resource_id: r.id, provider_id: r.provider_id, modality });
       setTests((t) => ({ ...t, [r.id]: res }));
@@ -232,7 +240,7 @@ export default function ModelResources() {
                 </button>
                 <button onClick={() => delProvider(i)} className="text-red-500 hover:text-red-600 p-1" title="删除"><Trash2 className="w-4 h-4" /></button>
               </div>
-              <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="base_url（如 https://dashscope.aliyuncs.com/compatible-mode）"
+              <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="base_url（含/不含 /v1 均可，如 https://api.xxx.com 或 https://api.xxx.com/v1）"
                 value={p.base_url} onChange={(e) => updProvider(i, { base_url: e.target.value })} />
               <input type="password" className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 placeholder={p.api_key_configured ? '（已配置，留空则不修改）' : 'api_key'}
