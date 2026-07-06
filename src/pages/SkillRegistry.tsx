@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Puzzle, Search, Plus, X, GitBranch, CheckCircle2, AlertCircle, Play, Box, Shield, ShieldCheck, ShieldAlert, ShieldQuestion, Terminal, ArrowRight, Cpu, Boxes, Download, FileCode2, Loader2 } from 'lucide-react';
+import { Puzzle, Search, Plus, X, GitBranch, CheckCircle2, AlertCircle, Play, Box, Shield, ShieldCheck, ShieldAlert, ShieldQuestion, Terminal, ArrowRight, Cpu, Boxes, Download, FileCode2, Loader2, Pencil, Trash2, ChevronDown, Lock } from 'lucide-react';
 import { useSkills } from '../api/hooks';
 import LiveBadge from '../components/LiveBadge';
 import { api } from '../api/client';
@@ -15,6 +16,8 @@ export interface SkillCard {
   pipeline: string; scope: SkillScope;
   allowedRoles?: string[]; signatureStatus?: SignatureStatus;
   conflictMsg?: string; canaryTraffic?: string;
+  /** 后端原始技能元数据，用于详情回显与编辑预填。 */
+  raw: SkillMeta;
 }
 
 /** 依据 skill_iri 前缀判定技能层级：内核内置（iri://）为系统级，其余（skill://…）为应用级。 */
@@ -39,6 +42,7 @@ function adaptSkill(s: SkillMeta): SkillCard {
     conflictMsg: (s as unknown as Record<string, unknown>).conflictMsg as string | undefined,
     canaryTraffic: (s as unknown as Record<string, unknown>).canaryTraffic as string | undefined,
     scope: resolveScope(s.skill_iri),
+    raw: s,
   };
 }
 
@@ -106,10 +110,17 @@ function iriFromRepo(repo: string): string {
 
 export default function SkillRegistry() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalType, setModalType] = useState<'create' | 'details' | null>(null);
+  const [modalType, setModalType] = useState<'create' | 'edit' | 'details' | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<any>(null);
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<'all' | SkillScope>('all');
+  // 编辑模式下保留原始技能元数据（含 schema/mapping/template），提交时合并回填不丢字段。
+  const [editingRaw, setEditingRaw] = useState<SkillMeta | null>(null);
+  // 删除态：正在删除的技能 iri（用于按钮 loading）与内联错误。
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  // CI/CD 演示流水线默认折叠（非真实数据）。
+  const [showPipeline, setShowPipeline] = useState(false);
 
   const { data, live, loading, error, refresh } = useSkills();
   // 新建/导入受控表单状态
@@ -157,13 +168,35 @@ export default function SkillRegistry() {
   }, [baseList, scope, query]);
   const total = live ? data?.count ?? 0 : 0;
 
-  const openModal = (type: 'create' | 'details', skill: any = null) => {
+  /** 依据后端 SkillMeta 预填新建/编辑表单（编辑模式复用）。 */
+  const formFromMeta = (m: SkillMeta): CreateForm => {
+    const perms = m.skill_types || [];
+    return {
+      repo: '', ref: 'main', path: '/',
+      skill_iri: m.skill_iri, name: m.name, description: m.description,
+      version: (m.version || '1.0.0').replace(/^v/, ''),
+      category: m.category || '', security_level: m.security_level || 'normal',
+      allowed_roles: m.allowed_roles?.length ? [...m.allowed_roles] : ['DA'],
+      perm_network: perms.includes('network'),
+      perm_oss: perms.includes('oss'),
+      perm_mcp: perms.includes('mcp'),
+    };
+  };
+
+  const openModal = (type: 'create' | 'edit' | 'details', skill: any = null) => {
     setSelectedSkill(skill);
     setModalType(type);
+    setSubmitError(null);
+    setDeleteError(null);
     if (type === 'create') {
       setForm(EMPTY_FORM);
-      setSubmitError(null);
+      setEditingRaw(null);
+    } else if (type === 'edit') {
+      const raw: SkillMeta = skill?.raw;
+      setEditingRaw(raw ?? null);
+      setForm(raw ? formFromMeta(raw) : EMPTY_FORM);
     } else {
+      setShowPipeline(false);
       setManifestText(null);
       setManifestError(null);
       setManifestLoading(false);
@@ -198,6 +231,41 @@ export default function SkillRegistry() {
    *  - 否则直接调用 /api/v1/skills（手动填写元数据注册）
    */
   const handleSubmit = async () => {
+    const isEdit = modalType === 'edit';
+    // 编辑模式：IRI 固定、走注册接口按 iri 覆盖、保留原 schema/mapping/template，不进入 Git 分支。
+    if (isEdit) {
+      if (!form.name.trim()) { setSubmitError('请填写技能名称'); return; }
+      if (form.allowed_roles.length === 0) { setSubmitError('请至少选择一个可用角色'); return; }
+      const perms: string[] = [];
+      if (form.perm_network) perms.push('network');
+      if (form.perm_oss) perms.push('oss');
+      if (form.perm_mcp) perms.push('mcp');
+      const payload: SkillMeta = {
+        ...(editingRaw ?? {} as SkillMeta),
+        skill_iri: editingRaw?.skill_iri ?? form.skill_iri.trim(),
+        name: form.name.trim(),
+        description: form.description.trim(),
+        version: form.version.trim() || '1.0.0',
+        category: form.category.trim() || 'application',
+        security_level: form.security_level,
+        allowed_roles: form.allowed_roles,
+        skill_types: perms,
+      };
+      setSubmitting(true);
+      setSubmitError(null);
+      try {
+        const res = await api.registerSkill(payload);
+        if (res.status && res.status !== 'ok') throw new Error(res.error || '保存失败');
+        refresh();
+        closeModal();
+      } catch (e) {
+        setSubmitError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     const hasGitUrl = isGitUrl(form.repo);
     const iri = form.skill_iri.trim() || iriFromRepo(form.repo);
 
@@ -266,6 +334,24 @@ export default function SkillRegistry() {
       setManifestError(e instanceof Error ? e.message : String(e));
     } finally {
       setManifestLoading(false);
+    }
+  };
+
+  /** 删除技能（仅应用级）：二次确认后调用 DELETE，成功刷新列表；若在详情弹窗则关闭。 */
+  const handleDelete = async (skill: SkillCard) => {
+    if (skill.scope === 'system') return; // 系统级只读，前端不触发
+    if (!window.confirm(`确认删除技能「${skill.name}」？\n此操作不可撤销（${skill.id}）。`)) return;
+    setDeletingId(skill.id);
+    setDeleteError(null);
+    try {
+      const res = await api.deleteSkill(skill.id);
+      if (res.status && res.status !== 'ok') throw new Error(res.error || '删除失败');
+      refresh();
+      if (isModalOpen) closeModal();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -343,6 +429,13 @@ export default function SkillRegistry() {
         </div>
       </div>
 
+      {deleteError && !isModalOpen && (
+        <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 p-3 rounded-lg border border-red-200">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>删除失败：{deleteError}</span>
+        </div>
+      )}
+
       {/* Skills Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {skills.map((skill, i) => (
@@ -400,12 +493,37 @@ export default function SkillRegistry() {
                 {skill.status === 'testing' && <span className="flex items-center gap-1 text-xs font-medium text-blue-600"><Play className="w-4 h-4" /> 测试中</span>}
                 {skill.status === 'conflict' && <span className="flex items-center gap-1 text-xs font-medium text-red-600"><X className="w-4 h-4" /> 拦截</span>}
               </div>
-              <button 
-                onClick={() => openModal('details', skill)}
-                className="text-sm text-blue-600 font-medium hover:text-blue-700"
-              >
-                CI/CD 详情 &rarr;
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => openModal('details', skill)}
+                  className="text-sm text-blue-600 font-medium hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
+                >
+                  详情
+                </button>
+                {skill.scope === 'application' ? (
+                  <>
+                    <button
+                      onClick={() => openModal('edit', skill)}
+                      title="编辑"
+                      className="text-gray-500 hover:text-blue-600 p-1.5 rounded hover:bg-blue-50"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(skill)}
+                      disabled={deletingId === skill.id}
+                      title="删除"
+                      className="text-gray-500 hover:text-red-600 p-1.5 rounded hover:bg-red-50 disabled:opacity-40"
+                    >
+                      {deletingId === skill.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    </button>
+                  </>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-gray-400 px-1.5" title="系统级内置技能为只读">
+                    <Lock className="w-3.5 h-3.5" /> 只读
+                  </span>
+                )}
+              </div>
             </div>
           </motion.div>
         ))}
@@ -434,7 +552,9 @@ export default function SkillRegistry() {
             >
               <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
                 <h2 className="text-lg font-bold text-gray-900">
-                  {modalType === 'create' ? '新建/导入技能包' : `技能详情: ${selectedSkill?.name}`}
+                  {modalType === 'create' ? '新建/导入技能包'
+                    : modalType === 'edit' ? `编辑技能: ${selectedSkill?.name}`
+                    : `技能详情: ${selectedSkill?.name}`}
                 </h2>
                 <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
                   <X className="w-5 h-5" />
@@ -442,9 +562,14 @@ export default function SkillRegistry() {
               </div>
 
               <div className="p-6 overflow-y-auto flex-1">
-                {modalType === 'create' && (
+                {(modalType === 'create' || modalType === 'edit') && (
                   <div className="space-y-5">
-                    {isGitUrl(form.repo) ? (
+                    {modalType === 'edit' ? (
+                      <div className="bg-amber-50 text-amber-800 text-sm p-3 rounded-lg border border-amber-200 flex items-start gap-2">
+                        <Pencil className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span><b>编辑模式</b>：技能 IRI 为主键不可修改；保存将按 IRI 覆盖已注册技能（输入/输出 Schema 与模板保持不变）。</span>
+                      </div>
+                    ) : isGitUrl(form.repo) ? (
                       <div className="bg-green-50 text-green-800 text-sm p-3 rounded-lg border border-green-200 flex items-start gap-2">
                         <span className="text-base">🔗</span>
                         <span><b>Git 导入模式</b>：后端将 <code>git clone</code> 该仓库并自动解析 <code>skill.yaml</code>，下方字段仅作覆盖用途（留空则以仓库内定义为准）。</span>
@@ -456,6 +581,7 @@ export default function SkillRegistry() {
                       </div>
                     )}
 
+                    {modalType === 'create' && (<>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Git 仓库地址 <span className="text-gray-400 font-normal text-xs">（可选，填写后自动 Git 导入）</span></label>
                       <input
@@ -476,12 +602,13 @@ export default function SkillRegistry() {
                         <input type="text" value={form.path} onChange={(e) => setField('path', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono" />
                       </div>
                     </div>
+                    </>)}
 
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                          技能名称 {!isGitUrl(form.repo) && <span className="text-red-500">*</span>}
-                          {isGitUrl(form.repo) && <span className="text-gray-400 font-normal text-xs">（留空则从 skill.yaml 读取）</span>}
+                          技能名称 {(modalType === 'edit' || !isGitUrl(form.repo)) && <span className="text-red-500">*</span>}
+                          {modalType === 'create' && isGitUrl(form.repo) && <span className="text-gray-400 font-normal text-xs">（留空则从 skill.yaml 读取）</span>}
                         </label>
                         <input type="text" value={form.name} onChange={(e) => setField('name', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="如：PDF复杂表格解析" />
                       </div>
@@ -512,8 +639,16 @@ export default function SkillRegistry() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">技能 IRI（留空则依据仓库名自动生成）</label>
-                      <input type="text" value={form.skill_iri} onChange={(e) => setField('skill_iri', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono" placeholder={iriFromRepo(form.repo) || 'skill://app/your-skill'} />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        技能 IRI{modalType === 'edit'
+                          ? <span className="text-gray-400 font-normal text-xs">（主键，不可修改）</span>
+                          : '（留空则依据仓库名自动生成）'}
+                      </label>
+                      <input type="text" value={form.skill_iri}
+                        onChange={(e) => setField('skill_iri', e.target.value)}
+                        readOnly={modalType === 'edit'}
+                        className={`w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono ${modalType === 'edit' ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
+                        placeholder={iriFromRepo(form.repo) || 'skill://app/your-skill'} />
                     </div>
 
                     <div>
@@ -590,7 +725,70 @@ export default function SkillRegistry() {
                       </div>
                     )}
 
-                    <div>
+                    {/* ── 技能元数据（新增时填写的真实内容回显）── */}
+                    {(() => {
+                      const raw: SkillMeta | undefined = selectedSkill?.raw;
+                      if (!raw) return null;
+                      const perms = (raw.skill_types || []).filter((t) => ['network', 'oss', 'mcp'].includes(t));
+                      const Field = ({ label, children }: { label: string; children: ReactNode }) => (
+                        <div className="grid grid-cols-[6rem_1fr] gap-2 py-1.5 border-b border-gray-100 last:border-0">
+                          <span className="text-xs font-medium text-gray-500">{label}</span>
+                          <div className="text-sm text-gray-800 break-all">{children}</div>
+                        </div>
+                      );
+                      const jsonOrEmpty = (v: unknown) => {
+                        const s = JSON.stringify(v ?? {}, null, 2);
+                        return s === '{}' ? '（未定义）' : s;
+                      };
+                      return (
+                        <div className="rounded-lg border border-gray-200">
+                          <div className="px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                            <Puzzle className="w-3.5 h-3.5" /> 技能元数据
+                          </div>
+                          <div className="px-3 py-1">
+                            <Field label="IRI"><span className="font-mono text-xs">{raw.skill_iri}</span></Field>
+                            <Field label="名称">{raw.name}</Field>
+                            <Field label="版本"><span className="font-mono">{raw.version}</span></Field>
+                            <Field label="分类">{raw.category || '（未设置）'}</Field>
+                            <Field label="安全级别">{raw.security_level || '（未设置）'}</Field>
+                            <Field label="允许角色">
+                              <div className="flex flex-wrap gap-1">
+                                {(raw.allowed_roles || []).length
+                                  ? raw.allowed_roles.map((r) => <span key={r} className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{r}</span>)
+                                  : '（无）'}
+                              </div>
+                            </Field>
+                            <Field label="权限">
+                              <div className="flex flex-wrap gap-1">
+                                {perms.length
+                                  ? perms.map((p) => <span key={p} className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100">{p}</span>)
+                                  : '（无）'}
+                              </div>
+                            </Field>
+                            <Field label="描述">{raw.description || '（无）'}</Field>
+                            <Field label="签名状态"><SignatureBadge status={raw.signature_status} /></Field>
+                            <Field label="输入 Schema">
+                              <pre className="text-xs bg-gray-900 text-gray-100 rounded p-2 overflow-x-auto max-h-40 whitespace-pre">{jsonOrEmpty(raw.input_schema)}</pre>
+                            </Field>
+                            <Field label="输出 Schema">
+                              <pre className="text-xs bg-gray-900 text-gray-100 rounded p-2 overflow-x-auto max-h-40 whitespace-pre">{jsonOrEmpty(raw.output_schema)}</pre>
+                            </Field>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="rounded-lg border border-gray-200">
+                      <button
+                        type="button"
+                        onClick={() => setShowPipeline((v) => !v)}
+                        className="w-full px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-between"
+                      >
+                        <span className="flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5" /> CI/CD 流水线（演示，非真实数据）</span>
+                        <ChevronDown className={`w-4 h-4 transition-transform ${showPipeline ? 'rotate-180' : ''}`} />
+                      </button>
+                      {showPipeline && (
+                    <div className="p-4">
                       <h4 className="text-sm font-bold text-gray-900 mb-4">CI/CD 自动化流水线状态</h4>
                       <div className="relative">
                         {/* Pipeline Line */}
@@ -660,18 +858,46 @@ export default function SkillRegistry() {
                         </div>
                       </div>
                     </div>
+                      )}
+                    </div>
+
+                    {deleteError && (
+                      <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 p-3 rounded-lg border border-red-200">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <span>{deleteError}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {modalType === 'create' && (
+              {(modalType === 'create' || modalType === 'edit') && (
                 <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
                   <button onClick={closeModal} disabled={submitting} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-60">
                     取消
                   </button>
                   <button onClick={handleSubmit} disabled={submitting} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-60">
                     {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {submitting ? '提交中…' : isGitUrl(form.repo) ? '🔗 Git 导入' : '提交集成'}
+                    {submitting ? '提交中…' : modalType === 'edit' ? '保存修改' : isGitUrl(form.repo) ? '🔗 Git 导入' : '提交集成'}
+                  </button>
+                </div>
+              )}
+
+              {modalType === 'details' && selectedSkill?.scope === 'application' && (
+                <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+                  <button
+                    onClick={() => handleDelete(selectedSkill)}
+                    disabled={deletingId === selectedSkill?.id}
+                    className="px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-300 rounded-lg hover:bg-red-50 flex items-center gap-2 disabled:opacity-60"
+                  >
+                    {deletingId === selectedSkill?.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    删除
+                  </button>
+                  <button
+                    onClick={() => openModal('edit', selectedSkill)}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  >
+                    <Pencil className="w-4 h-4" /> 编辑
                   </button>
                 </div>
               )}
