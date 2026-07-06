@@ -155,6 +155,8 @@ export interface ProviderInfo {
 export interface ModelResourceInfo {
   id: string; name?: string; provider_id: string; model: string;
   modalities?: string[]; enabled?: boolean; context_window?: number | null;
+  /** 向量维度（仅 embedding 模态有意义）；桥接为生效向量时写入 embedding 配置。 */
+  dimension?: number | null;
   supports_tools?: boolean; supports_reasoning?: boolean; supports_vision?: boolean;
 }
 export interface ModelsConfig { providers: ProviderInfo[]; resources: ModelResourceInfo[] }
@@ -184,6 +186,10 @@ export interface ModelsConfigPatch {
 /** POST /api/v1/models/test 请求 / 结果（结果绝不含 api_key）。 */
 export interface ModelTestRequest { provider_id?: string; resource_id: string; modality?: string }
 export interface ModelTestResult { ok: boolean; http_status: number; latency_ms: number; dimension?: number; error?: string }
+/** POST /api/v1/providers/models 自动拉取型号：provider_id 命中已保存 provider，或内联 base_url/api_key。 */
+export interface ProviderModelsRequest { provider_id?: string; base_url?: string; api_key?: string }
+export interface ProviderModelItem { id: string; owned_by?: string }
+export interface ProviderModelsResult { ok: boolean; http_status: number; models: ProviderModelItem[]; error?: string }
 /** POST /api/v1/images/upload 响应：url 为 core 代理直链，data_uri 仅小图返回。 */
 export interface ImageUploadResponse { image_id: string; url: string; content_type: string; size: number; data_uri?: string | null }
 export interface AgentInfo {
@@ -480,6 +486,16 @@ export const api = {
   testModelResource: (req: ModelTestRequest) =>
     request<ModelTestResult>('/api/v1/models/test', {
       method: 'POST', body: JSON.stringify(req),
+    }),
+  /** 自动拉取 provider 的 /v1/models 型号列表（结果不含 api_key）。 */
+  fetchProviderModels: (req: ProviderModelsRequest) =>
+    request<ProviderModelsResult>('/api/v1/providers/models', {
+      method: 'POST', body: JSON.stringify(req),
+    }),
+  /** 将某个 embedding 型号桥接为生效向量服务（热切换向量库 + 后台重建索引）。 */
+  activateEmbedding: (resource_id: string) =>
+    request<ConfigUpdateResponse>('/api/v1/embedding/activate', {
+      method: 'POST', body: JSON.stringify({ resource_id }),
     }),
   /** 图片上传（multipart，复用 BlobStore）：返回 core 代理直链 url。 */
   uploadImage: (file: File) => {
