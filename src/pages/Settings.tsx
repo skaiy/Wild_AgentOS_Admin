@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Save, Server, Shield, Users, Key, Database, AlertTriangle, CheckCircle2, Copy, Upload, RefreshCw, Boxes } from 'lucide-react';
+import { Save, Server, Shield, Users, Key, Database, AlertTriangle, CheckCircle2, Copy, Upload, RefreshCw, Boxes, Cpu } from 'lucide-react';
 import { loadConfig, saveConfig, toEnvSnippet, toYamlSnippet, type RuntimeConfig } from '../api/config';
 import type { EmbeddingConfigPatch } from '../api/client';
 import { useRuntimeConfig } from '../api/hooks';
 import { api } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import ApiKeyCenter from '../components/ApiKeyCenter';
+import ModelResources from '../components/ModelResources';
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('llm');
@@ -167,6 +168,7 @@ export default function Settings() {
             {[
               { id: 'llm', label: 'LLM 大模型网关', icon: Server },
               { id: 'embedding', label: '向量化 / Embedding', icon: Boxes },
+              { id: 'models', label: '模型资源', icon: Cpu },
               { id: 'iam', label: 'IAM 身份与访问', icon: Users },
               { id: 'security', label: '安全与合规策略', icon: Shield },
               { id: 'storage', label: '数据存储与备份', icon: Database },
@@ -728,6 +730,8 @@ export default function Settings() {
           )}
 
           {/* Tab: API Keys */}
+          {activeTab === 'models' && <ModelResources />}
+
           {activeTab === 'keys' && <ApiKeyCenter />}
 
         </div>

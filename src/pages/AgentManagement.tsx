@@ -22,7 +22,7 @@ export default function AgentManagement() {
   const [testingAgent, setTestingAgent] = useState<any>(null);
   const [publishAgent, setPublishAgent] = useState<any>(null);
   // skills 改为 string[] 存储选中的 skill_iri 列表
-  const [form, setForm] = useState({ name: '', description: '', business_domain: '', skills: [] as string[], knowledge_pack_ids: [] as string[], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
+  const [form, setForm] = useState({ name: '', description: '', business_domain: '', skills: [] as string[], knowledge_pack_ids: [] as string[], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '', model_mounts: {} as Record<string, string> });
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   // 测试对话：基于该 Agent 挂载知识包的检索增强问答（POST /api/v1/agents/:id/chat）
@@ -36,7 +36,7 @@ export default function AgentManagement() {
     setSelectedAgent(agent);
     setActionError(null);
     if (type === 'create') {
-      setForm({ name: '', description: '', business_domain: '', skills: [], knowledge_pack_ids: [], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '' });
+      setForm({ name: '', description: '', business_domain: '', skills: [], knowledge_pack_ids: [], icon: 'Bot', color: 'bg-blue-500', version: 'v1.0.0', model: '', model_mounts: {} });
     } else if (type === 'edit') {
       setForm({
         name: agent?.name ?? '',
@@ -48,6 +48,7 @@ export default function AgentManagement() {
         color: agent?.color ?? 'bg-blue-500',
         version: agent?.version ?? 'v1.0.0',
         model: agent?.model ?? '',
+        model_mounts: agent?.model_mounts && typeof agent.model_mounts === 'object' ? { ...agent.model_mounts } : {},
       });
     }
     setModalType(type);
@@ -69,6 +70,15 @@ export default function AgentManagement() {
     }));
   };
 
+  // 能力槽挂载：value 为 resource_id；空值表示移除该槽（回退基础模型/网关默认）。
+  const setMount = (slot: string, resourceId: string) => {
+    setForm(f => {
+      const m = { ...f.model_mounts };
+      if (resourceId) m[slot] = resourceId; else delete m[slot];
+      return { ...f, model_mounts: m };
+    });
+  };
+
   const closeModal = () => {
     setModalType(null);
     setSelectedAgent(null);
@@ -85,6 +95,10 @@ export default function AgentManagement() {
   const availableModels = Array.from(
     new Set([gw?.default_model, ...Object.keys(gw?.model_mapping ?? {})].filter((m): m is string => !!m)),
   );
+  // 模型资源注册表（P3）：按模态过滤出可挂载到 chat / vision 槽的型号。
+  const modelResources = (cfgState.data?.models?.resources ?? []).filter((r) => r.enabled !== false);
+  const chatResources = modelResources.filter((r) => (r.modalities ?? []).includes('chat'));
+  const visionResources = modelResources.filter((r) => (r.modalities ?? []).includes('vision'));
   const allAgents = agentsState.data?.agents ?? [];
   const batchAgents = allAgents.filter((a) => a.source !== 'user');
   const userAgents = allAgents.filter((a) => a.source === 'user');
@@ -138,6 +152,7 @@ export default function AgentManagement() {
         skills: form.skills,
         icon: form.icon,
         color: form.color,
+        model_mounts: Object.keys(form.model_mounts).length ? form.model_mounts : undefined,
       };
       if (modalType === 'edit' && selectedAgent?.id && selectedAgent?.source === 'user') {
         await api.updateAgent(selectedAgent.id, payload);
@@ -382,6 +397,28 @@ export default function AgentManagement() {
                         )}
                       </select>
                     </div>
+                    {modelResources.length > 0 && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">多模型挂载 (model_mounts)</label>
+                        <p className="text-xs text-gray-400 mb-2">按能力槽挂载不同型号；留空则回退上方基础模型 / 网关默认。含图片的消息优先走 vision 槽。</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <span className="text-xs text-gray-500">对话 (chat)</span>
+                            <select value={form.model_mounts.chat || ''} onChange={(e) => setMount('chat', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                              <option value="">（不挂载 / 用基础模型）</option>
+                              {chatResources.map((r) => <option key={r.id} value={r.id}>{r.name || r.model}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <span className="text-xs text-gray-500">视觉 (vision)</span>
+                            <select value={form.model_mounts.vision || ''} onChange={(e) => setMount('vision', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                              <option value="">（不挂载）</option>
+                              {visionResources.map((r) => <option key={r.id} value={r.id}>{r.name || r.model}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">已注册 MCP 工具（实时）</label>
                       <div className="border border-gray-200 rounded-lg p-3 space-y-2 max-h-32 overflow-y-auto bg-gray-50">

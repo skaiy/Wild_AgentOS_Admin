@@ -145,10 +145,24 @@ export interface RuntimeEmbeddingInfo {
   oneapi: { base_url: string; model: string; dimension: number; api_key_configured?: boolean };
   fallback: { dimension: number };
 }
+/** 模型资源注册表（P3）：多 provider + 多 resource（多模态）。
+ *  GET 快照中 provider 不回显 api_key，仅暴露 api_key_configured。 */
+export interface ProviderInfo {
+  id: string; name?: string; base_url: string;
+  kind?: string; enabled?: boolean; timeout_seconds?: number;
+  api_key_configured?: boolean;
+}
+export interface ModelResourceInfo {
+  id: string; name?: string; provider_id: string; model: string;
+  modalities?: string[]; enabled?: boolean; context_window?: number | null;
+  supports_tools?: boolean; supports_reasoning?: boolean; supports_vision?: boolean;
+}
+export interface ModelsConfig { providers: ProviderInfo[]; resources: ModelResourceInfo[] }
 export interface RuntimeConfigInfo {
   version: string;
   gateway: RuntimeGatewayInfo;
   embedding?: RuntimeEmbeddingInfo;
+  models?: ModelsConfig;
   api: { grpc_addr: string; http_addr: string; metrics_port: number };
   memory: { l1_max_messages: number; l2_max_node_size: number };
   agents: { max_iterations: number; max_parallel_agents: number };
@@ -161,6 +175,17 @@ export interface EmbeddingConfigPatch {
   oneapi?: Partial<{ base_url: string; model: string; dimension: number; api_key: string }>;
   fallback?: Partial<{ dimension: number }>;
 }
+/** PUT /api/v1/config 的 models 补丁：整体替换 providers/resources（集合语义，删除即移除）。
+ *  provider.api_key 留空表示不修改（后端按 id 回填旧值），避免误清空。 */
+export interface ModelsConfigPatch {
+  providers: Array<ProviderInfo & { api_key?: string }>;
+  resources: ModelResourceInfo[];
+}
+/** POST /api/v1/models/test 请求 / 结果（结果绝不含 api_key）。 */
+export interface ModelTestRequest { provider_id?: string; resource_id: string; modality?: string }
+export interface ModelTestResult { ok: boolean; http_status: number; latency_ms: number; dimension?: number; error?: string }
+/** POST /api/v1/images/upload 响应：url 为 core 代理直链，data_uri 仅小图返回。 */
+export interface ImageUploadResponse { image_id: string; url: string; content_type: string; size: number; data_uri?: string | null }
 export interface AgentInfo {
   name: string; description: string; enabled: boolean; business_domain: string;
   id?: string; skills?: string[];
@@ -169,6 +194,8 @@ export interface AgentInfo {
   icon?: string; color?: string;
   /** 是否已对外发布（可经入站 API 密钥调用）。 */
   published?: boolean;
+  /** 能力槽 → resource_id 挂载（如 { chat, vision }）；缺省回退旧 model/网关默认。 */
+  model_mounts?: Record<string, string>;
 }
 export interface AgentsResponse {
   count: number; agents: AgentInfo[];
@@ -180,6 +207,8 @@ export interface AgentCreatePayload {
   knowledge_pack_ids?: string[];
   icon?: string; color?: string;
   published?: boolean;
+  /** 能力槽 → resource_id 挂载（如 { chat, vision }）。 */
+  model_mounts?: Record<string, string>;
 }
 export interface AgentChatSource { code: string; label: string; brand: string }
 /** 决策层建议动作：将诊断意图映射到动力层 ActionType。requires_business_data=true 表示
@@ -442,10 +471,22 @@ export const api = {
   updateConfig: (patch: {
     gateway?: Partial<RuntimeGatewayInfo & { api_key: string }>;
     embedding?: EmbeddingConfigPatch;
+    models?: ModelsConfigPatch;
   }) =>
     request<ConfigUpdateResponse>('/api/v1/config', {
       method: 'PUT', body: JSON.stringify(patch),
     }),
+  /** 模型资源连通性测试（chat/vision/embedding）；结果不含 api_key。 */
+  testModelResource: (req: ModelTestRequest) =>
+    request<ModelTestResult>('/api/v1/models/test', {
+      method: 'POST', body: JSON.stringify(req),
+    }),
+  /** 图片上传（multipart，复用 BlobStore）：返回 core 代理直链 url。 */
+  uploadImage: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return requestForm<ImageUploadResponse>('/api/v1/images/upload', fd);
+  },
   skills: () => request<SkillsResponse>('/api/v1/skills'),
   registerSkill: (skill: SkillMeta) =>
     request<SkillRegisterResponse>('/api/v1/skills', {
