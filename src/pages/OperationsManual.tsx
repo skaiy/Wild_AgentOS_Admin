@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, isValidElement, cloneElement } from 'react';
 import type { ReactNode } from 'react';
-import { isValidElement } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { BookOpen, Loader2 } from 'lucide-react';
@@ -37,6 +36,34 @@ const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4') =>
       </Tag>
     );
   };
+
+/** 递归处理 ReactNode 节点，将其中的 `<br>` 文本/HTML 替换为真实的 `<br />` 组件，用以正确在 markdown 表格内换行。 */
+function renderContentWithBr(children: ReactNode): ReactNode {
+  if (typeof children === 'string') {
+    if (/<br\s*\/?>/i.test(children)) {
+      const parts = children.split(/<br\s*\/?>/i);
+      return parts.map((part, index) => (
+        <span key={index}>
+          {part}
+          {index < parts.length - 1 && <br />}
+        </span>
+      ));
+    }
+    return children;
+  }
+  if (Array.isArray(children)) {
+    return children.map((child, index) => (
+      <span key={index}>{renderContentWithBr(child)}</span>
+    ));
+  }
+  if (isValidElement(children)) {
+    const elementChildren = (children.props as { children?: ReactNode }).children;
+    if (elementChildren) {
+      return cloneElement(children as any, {}, renderContentWithBr(elementChildren));
+    }
+  }
+  return children;
+}
 
 interface HeaderItem {
   text: string;
@@ -134,7 +161,7 @@ export default function OperationsManual() {
 
       <div className="flex gap-6 items-start">
         {/* 左侧主要内容 */}
-        <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-sm p-8 min-h-[500px]">
+        <div className="flex-1 min-w-0 bg-white rounded-xl border border-gray-200 shadow-sm p-8 min-h-[500px]">
           {loading ? (
             <div className="h-full flex items-center justify-center text-gray-500 gap-2 min-h-[400px]">
               <Loader2 className="w-6 h-6 animate-spin" /> 加载文档中...
@@ -194,6 +221,12 @@ export default function OperationsManual() {
                       loading="lazy"
                       className="rounded-lg border border-gray-200 shadow-sm my-4 max-w-full"
                     />
+                  ),
+                  td: ({ node, children, ...props }) => (
+                    <td {...props}>{renderContentWithBr(children)}</td>
+                  ),
+                  th: ({ node, children, ...props }) => (
+                    <th {...props}>{renderContentWithBr(children)}</th>
                   ),
                 }}
               >
