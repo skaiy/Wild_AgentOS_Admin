@@ -37,8 +37,8 @@ export default function Login({ onSuccess }: LoginProps) {
     <div className="flex h-screen items-center justify-center bg-gradient-to-br from-gray-900 via-slate-800 to-blue-900 font-sans">
       <div className="w-full max-w-md rounded-2xl bg-white/95 p-8 shadow-2xl backdrop-blur">
         <div className="mb-8 flex flex-col items-center">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-blue-600 text-white">
-            <ShieldCheck className="h-7 w-7" />
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-xl overflow-hidden bg-gray-50 p-2.5 shadow-sm border border-gray-100">
+            <img src="/logo_transparent.png" className="h-full w-full object-contain" alt="Wild Agent OS Logo" />
           </div>
           <h1 className="text-xl font-bold text-gray-900">Wild Agent OS</h1>
           <p className="mt-1 text-sm text-gray-500">管理控制台登录</p>

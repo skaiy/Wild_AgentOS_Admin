@@ -38,10 +38,18 @@ const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4') =>
     );
   };
 
+interface HeaderItem {
+  text: string;
+  level: number;
+  slug: string;
+}
+
 export default function OperationsManual() {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [headers, setHeaders] = useState<HeaderItem[]>([]);
+  const [activeSlug, setActiveSlug] = useState('');
 
   useEffect(() => {
     fetch('/operations_manual.md')
@@ -60,8 +68,60 @@ export default function OperationsManual() {
       });
   }, []);
 
+  // 解析 markdown 文本中的标题生成目录大纲
+  useEffect(() => {
+    if (!content) return;
+    const lines = content.split('\n');
+    const list: HeaderItem[] = [];
+    for (const line of lines) {
+      const match = line.match(/^(#{1,3})\s+(.*)$/);
+      if (match) {
+        const level = match[1].length;
+        const text = match[2].trim();
+        // 清理 markdown 粗体/链接等标识
+        const cleanText = text.replace(/[\*_`]/g, '').replace(/\[(.*?)\]\(.*?\)/g, '$1');
+        list.push({
+          text: cleanText,
+          level,
+          slug: slugify(cleanText)
+        });
+      }
+    }
+    setHeaders(list);
+    if (list.length > 0) {
+      setActiveSlug(list[0].slug);
+    }
+  }, [content]);
+
+  // 监听滚动更新 active 锚点
+  useEffect(() => {
+    if (headers.length === 0) return;
+
+    const handleScroll = () => {
+      let currentActive = '';
+      for (const h of headers) {
+        const el = document.getElementById(h.slug);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          // 当标题划过顶部或接近顶部 (140px 以内)
+          if (rect.top <= 140) {
+            currentActive = h.slug;
+          }
+        }
+      }
+      if (currentActive) {
+        setActiveSlug(currentActive);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [headers]);
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center gap-3">
         <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
           <BookOpen className="w-6 h-6" />
@@ -72,72 +132,104 @@ export default function OperationsManual() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8 min-h-[500px]">
-        {loading ? (
-          <div className="h-full flex items-center justify-center text-gray-500 gap-2 min-h-[400px]">
-            <Loader2 className="w-6 h-6 animate-spin" /> 加载文档中...
-          </div>
-        ) : error ? (
-          <div className="h-full flex items-center justify-center text-red-500 h-[400px]">
-            文档加载失败，请刷新重试。
-          </div>
-        ) : (
-          <div className="prose prose-blue max-w-none text-gray-700
-             prose-headings:text-gray-900 prose-headings:font-bold
-             prose-h1:text-3xl prose-h1:border-b prose-h1:pb-4 prose-h1:mb-6
-             prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4
-             prose-h3:text-lg prose-h3:mt-6 prose-h3:mb-3
-             prose-p:leading-relaxed prose-p:mb-4
-             prose-ul:list-disc prose-ul:pl-5 md:prose-ul:pl-8 prose-ul:mb-4
-             prose-ol:list-decimal prose-ol:pl-5 md:prose-ol:pl-8 prose-ol:mb-4
-             prose-li:mb-2 prose-strong:text-gray-900 prose-strong:font-semibold
-             prose-table:text-sm prose-th:bg-gray-50 prose-td:align-top
-             prose-code:text-pink-600 prose-code:bg-gray-50 prose-code:px-1 prose-code:rounded
-             prose-pre:bg-gray-50 prose-pre:text-gray-800 prose-pre:border prose-pre:border-gray-200
-             [&_pre_code]:text-gray-800 [&_pre_code]:bg-transparent"
-          >
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                h1: heading('h1'),
-                h2: heading('h2'),
-                h3: heading('h3'),
-                h4: heading('h4'),
-                // 页内锚点：本控制台为 hash 路由（/#manual），原生 #anchor 会篡改路由，
-                // 故拦截 # 开头链接改为 JS 平滑滚动；外链新开页签。
-                a: ({ href, children, ...props }) => {
-                  if (href && href.startsWith('#')) {
+      <div className="flex gap-6 items-start">
+        {/* 左侧主要内容 */}
+        <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-sm p-8 min-h-[500px]">
+          {loading ? (
+            <div className="h-full flex items-center justify-center text-gray-500 gap-2 min-h-[400px]">
+              <Loader2 className="w-6 h-6 animate-spin" /> 加载文档中...
+            </div>
+          ) : error ? (
+            <div className="h-full flex items-center justify-center text-red-500 h-[400px]">
+              文档加载失败，请刷新重试。
+            </div>
+          ) : (
+            <div className="prose prose-blue max-w-none text-gray-700
+               prose-headings:text-gray-900 prose-headings:font-bold
+               prose-h1:text-3xl prose-h1:border-b prose-h1:pb-4 prose-h1:mb-6
+               prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4
+               prose-h3:text-lg prose-h3:mt-6 prose-h3:mb-3
+               prose-p:leading-relaxed prose-p:mb-4
+               prose-ul:list-disc prose-ul:pl-5 md:prose-ul:pl-8 prose-ul:mb-4
+               prose-ol:list-decimal prose-ol:pl-5 md:prose-ol:pl-8 prose-ol:mb-4
+               prose-li:mb-2 prose-strong:text-gray-900 prose-strong:font-semibold
+               prose-table:text-sm prose-th:bg-gray-50 prose-td:align-top
+               prose-code:text-pink-600 prose-code:bg-gray-50 prose-code:px-1 prose-code:rounded
+               prose-pre:bg-gray-50 prose-pre:text-gray-800 prose-pre:border prose-pre:border-gray-200
+               [&_pre_code]:text-gray-800 [&_pre_code]:bg-transparent"
+            >
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: heading('h1'),
+                  h2: heading('h2'),
+                  h3: heading('h3'),
+                  h4: heading('h4'),
+                  // 页内锚点：拦截 # 开头链接改为平滑滚动，防止与 hash 路由冲突
+                  a: ({ href, children, ...props }) => {
+                    if (href && href.startsWith('#')) {
+                      return (
+                        <a
+                          href={href}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            const el = document.getElementById(decodeURIComponent(href.slice(1)));
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }}
+                          {...props}
+                        >
+                          {children}
+                        </a>
+                      );
+                    }
                     return (
-                      <a
-                        href={href}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          const el = document.getElementById(decodeURIComponent(href.slice(1)));
-                          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }}
-                        {...props}
-                      >
+                      <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
                         {children}
                       </a>
                     );
-                  }
-                  return (
-                    <a href={href} target="_blank" rel="noopener noreferrer" {...props}>
-                      {children}
-                    </a>
-                  );
-                },
-                img: ({ node, ...props }) => (
-                  <img
-                    {...props}
-                    loading="lazy"
-                    className="rounded-lg border border-gray-200 shadow-sm my-4 max-w-full"
-                  />
-                ),
-              }}
-            >
-              {content}
-            </ReactMarkdown>
+                  },
+                  img: ({ node, ...props }) => (
+                    <img
+                      {...props}
+                      loading="lazy"
+                      className="rounded-lg border border-gray-200 shadow-sm my-4 max-w-full"
+                    />
+                  ),
+                }}
+              >
+                {content}
+              </ReactMarkdown>
+            </div>
+          )}
+        </div>
+
+        {/* 右侧悬浮目录大纲 */}
+        {!loading && !error && headers.length > 0 && (
+          <div className="w-64 shrink-0 sticky top-24 bg-white border border-gray-200 rounded-xl p-4 shadow-sm max-h-[calc(100vh-120px)] overflow-y-auto hidden xl:block">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">目录大纲</h3>
+            <ul className="space-y-1">
+              {headers.map((h, idx) => (
+                <li
+                  key={idx}
+                  style={{ paddingLeft: `${(h.level - 1) * 10}px` }}
+                >
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById(h.slug);
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    className={`text-left text-xs py-1.5 px-2.5 rounded w-full transition-all duration-200 block truncate ${
+                      activeSlug === h.slug
+                        ? 'text-blue-600 bg-blue-50/70 font-semibold border-l-2 border-blue-600 rounded-l-none'
+                        : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                    title={h.text}
+                  >
+                    {h.text}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
