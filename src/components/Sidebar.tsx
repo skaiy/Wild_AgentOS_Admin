@@ -50,7 +50,8 @@ export default function Sidebar({ currentPage, setCurrentPage }: any) {
   return (
     <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
       <div className="h-16 flex items-center px-6 border-b border-gray-200">
-        <div className="flex items-center gap-2 text-blue-600">
+        <div className="flex items-center gap-2.5 text-blue-600">
+          <img src="/logo_inverted.png" className="w-8 h-8 object-contain" alt="Wild Agent OS Logo" />
           <span className="text-xl font-bold tracking-tight">Wild Agent OS</span>
         </div>
       </div>
