@@ -4,35 +4,6 @@
 > 后端：`wild-agent-os-core/`（Rust · Axum HTTP/SSE + Tonic gRPC）　前端：`wild-agent-os-admin/`（React 19 + Vite 6 + Tailwind 4）\
 > 测试环境：`http://112.45.121.74:30010`\
 > 读者：**QA 测试小组**（看第 3 篇）· **Agent 开发者**（看第 4 篇）；第 1、2 篇与附录为两类读者共读。
-
-> **📌 本版更新（v1.5 · 2026-07-08）—— 认知因果引擎 & 图治理升级 & 技能中心 CRUD / 系统级（iri://）只读守卫**
-> - **认知与执行内核升级**：引入了全新的因果引擎（Causal Engine）、统一图存储后端（Unified Graph）、图特征计算与相似度评估、快照时间线（Snapshot Timeline）等核心升级。
-> - **详情回显（详见 3.2.3）**：技能详情弹窗新增「**技能元数据**」区，回显新建/编辑时填写的真实内容（IRI / 名称 / 版本 / 分类 / 安全级别 / 允许角色 / 权限 / 描述 / 输入·输出 Schema）；原 CI/CD 流水线降为可折叠「演示」区（非真实数据）。
-> - **编辑 / 删除（应用级 `skill://`）**：技能详情页新增「**编辑**」（复用注册表单、预填数据、锁定 IRI 主键按 upsert 覆盖、保留 `compiled_template`/`mappings`）与「**删除**」（二次确认，`DELETE /api/v1/skills?iri=...`，严格模式需 DA）。
-> - **系统级只读守卫**：`iri://` 为内核内置技能命名空间，注册/删除两侧均拒绝写操作（**403**）；「编辑/删除」按钮仅对应用级（`skill://`）显示。
-> - 详见 **3.2.3（技能中心）** 及附录 A/D。
-
-> **📌 上版更新（v1.4 · 2026-07-06）—— 模型注册中心（三合一收敛）· 自动拉取型号 · 向量桥接**
-> - **三合一收敛（详见 3.2.10）**：原「LLM 大模型网关」「向量化 / Embedding」「模型资源」三个设置 Tab 收敛为单一「**模型注册中心**」。统一管理 **Provider（外部 API 接入点）** 与其下 **型号**，型号按**模态子 Tab**（文本 / 多模态(VL) / 向量 / 语音 / 实时）分组；页面底部保留「**路由 / 默认（兜底网关）**」（`default_model`/`model_mapping`/兜底 `base_url`）。
-> - **自动拉取型号**：Provider 卡片「**拉取型号**」→ `POST /api/v1/providers/models` 调用其 `/v1/models` 列出可用型号，按名**关键词预判模态**（`vl/vision`→VL、`embed/bge`→向量、`tts/asr`→语音、`realtime`→实时），勾选批量生成型号（模态可人工改）。
-> - **向量桥接（设为生效向量）**：「向量」子 Tab 型号填 `dimension` 后点「**设为生效向量**」→ `POST /api/v1/embedding/activate`：以该型号的 Provider 端点/密钥 + `model`/`dimension` 桥接为 Embedding 服务，**免重启热切换向量库并后台重建索引**；卡片显示「生效中」。原始 Embedding（ollama / 内置降级）折叠保留于该子 Tab「高级」区。
-> - 详见 **3.2.10（模型注册中心）** 及附录 A/D。
-
-> **📌 上版更新（v1.3 · 2026-07-06）—— 模型资源注册表 · 多模态（VL） · Agent 多模型挂载**
-> - **模型资源注册表**：以「**Provider + Resource**」两级注册模型（v1.4 已并入「模型注册中心」）；每个型号资源可「**连通性测试**」（`POST /api/v1/models/test`）。GET 快照密钥仅回显 `api_key_configured`。
-> - **多模态（VL）**：网关按内容类型（`ChatContent`：text/image）路由；`/v1/chat/completions` 从 `image_url` content part 提取图片触发 **VL 路由**；`POST /api/v1/images/upload` 图片入口。
-> - **Agent 多模型挂载**：Agent `model_mounts`（能力槽 → 型号 ID，如 `{"chat":"res-1","vision":"res-2"}`），创建/编辑抽屉提供 **chat / vision 能力槽**下拉。
-> - 详见 **3.2.2（多模型挂载）/ 4.2.2（`model_mounts`）**。
-
-> **📌 上版更新（v1.2 · 2026-07-05）—— 知识库数据摄取 · 知识包统一挂载**
-> - **知识库数据摄取（详见 4.4）**：知识库页「新建知识库」支持两段式摄取——向量库多文件上传（`POST /api/v1/kb/bases/:id/upload`，自动分块 + 命名空间/租户标签）与图谱库结构化导入（`POST /api/v1/kb/bases/:id/import-graph`，CSV / JSONL / N-Triples → 命名图）；`stats` 精确计数，**中文实体/关系 IRI 原样保留**。
-> - **知识包统一挂载**：Agent 知识来源统一为「**知识包挂载**」（`knowledge_pack_ids`）。**旧「绑定知识图谱」单值路径已下线**（方案 B）：移除 `POST /api/v1/agents/:id/graph`、卡片 🔗 图标与 RAG 中的 `knowledge_graph` 读取；存量绑定启动时**一次性幂等迁移**进知识包。
-
-> **📌 上版更新（v1.1 · 2026-07-04）—— Agent 对外发布与入站 API 密钥治理**
-> Agent 创建后可在 `#agents` 通过 🚀「对外发布」抽屉一键上线，获取稳定调用 URL、`curl` 与 **OpenAI 兼容**示例；`#settings → API 密钥管理` 升级为真实「调用方 Client + 密钥」中心（scope 授权、限流/配额、密钥签发/撤销、调用审计）。新增对外调用面 `POST /api/v1/public/agents/:id/chat`、`.../chat/stream`（SSE）与 OpenAI 兼容 `GET /v1/models`、`POST /v1/chat/completions`。
-
-
-
 # 📌 版本发布历史与说明
 
 关于 Wild AgentOS 的详细版本演进历史，请查阅下表。平台提供生产级安全网关、多租户工作空间数据隔离，以及先进的智能体认知操作系统内核：
