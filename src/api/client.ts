@@ -593,19 +593,25 @@ export const api = {
   listPrompts: () => request<PromptVersionsResponse>('/api/v1/prompts'),
   createPrompt: (v: Omit<PromptVersion, 'id' | 'created_at' | 'is_active' | 'canary_percent' | 'canary_tenant_ids' | 'canary_roles'>) =>
     request<{ status: string; id: string }>('/api/v1/prompts', {
-      method: 'POST', body: JSON.stringify(v),
+      method: 'POST',
+      body: JSON.stringify(v),
+      headers: { 'X-Identity': adminIdentityHeader() },
     }),
   activatePrompt: (id: string) =>
     request<{ status: string; id: string }>(`/api/v1/prompts/${encodeURIComponent(id)}/activate`, {
       method: 'POST',
+      headers: { 'X-Identity': adminIdentityHeader() },
     }),
   setCanary: (id: string, payload: CanaryRequest) =>
     request<{ status: string; id: string; percent: number }>(`/api/v1/prompts/${encodeURIComponent(id)}/canary`, {
-      method: 'PUT', body: JSON.stringify(payload),
+      method: 'PUT',
+      body: JSON.stringify(payload),
+      headers: { 'X-Identity': adminIdentityHeader() },
     }),
   deletePrompt: (id: string) =>
     request<{ status: string; id: string }>(`/api/v1/prompts/${encodeURIComponent(id)}`, {
       method: 'DELETE',
+      headers: { 'X-Identity': adminIdentityHeader() },
     }),
   resolvePrompt: (tenant_id: string, user_id: string, role?: string) =>
     request<{ status: string; resolved: ResolvedPrompt }>(
