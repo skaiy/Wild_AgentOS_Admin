@@ -102,6 +102,29 @@ export interface SkillMeta {
 export interface SkillsResponse { count: number; trusted_key_count?: number; skills: SkillMeta[] }
 export interface SkillRegisterResponse {
   status: string; skill_iri?: string; signature_status?: SignatureStatus; error?: string;
+  /** 注册请求所触发的准入流水线运行记录（后端接入流水线后附带）。 */
+  gate_passed?: boolean; published?: boolean; pipeline_run?: PipelineRun;
+}
+/** 单个流水线阶段结论：与后端 StageStatus 枚举对应。 */
+export type PipelineStageStatus = 'passed' | 'warning' | 'failed' | 'skipped';
+/** 流水线触发来源：与后端 PipelineSource 枚举对应。 */
+export type PipelineSource = 'manual' | 'git' | 'rerun';
+/** 单个阶段结果（对应后端 StageResult）。 */
+export interface PipelineStage {
+  stage: string; title: string; status: PipelineStageStatus;
+  duration_ms: number; summary: string; details: string[];
+}
+/** 一次完整流水线运行记录（对应后端 PipelineRun）。 */
+export interface PipelineRun {
+  run_id: string; skill_iri: string; skill_name: string; version: string;
+  source: PipelineSource; triggered_by: string; repo_url?: string;
+  started_at: string; duration_ms: number; stages: PipelineStage[];
+  gate_passed: boolean; published: boolean; summary: string;
+}
+export interface PipelineRunsResponse { count: number; runs: PipelineRun[] }
+export interface PipelineRerunResponse {
+  status: string; error?: string | null; skill_iri?: string;
+  gate_passed?: boolean; published?: boolean; pipeline_run?: PipelineRun;
 }
 export interface GuardStats {
   total_checks: number; passed_checks: number;
@@ -522,6 +545,20 @@ export const api = {
   /** skill.yaml 的直连下载 URL（附件形式，带 Content-Disposition）。 */
   skillManifestUrl: (iri: string) =>
     `${getBackendBase()}/api/v1/skills/manifest?iri=${encodeURIComponent(iri)}`,
+  /** 查询技能准入流水线运行记录；可按 iri 过滤、limit 限量（只读）。 */
+  pipelineRuns: (iri?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (iri) params.set('iri', iri);
+    if (limit != null) params.set('limit', String(limit));
+    const qs = params.toString();
+    return request<PipelineRunsResponse>(`/api/v1/skills/pipeline-runs${qs ? `?${qs}` : ''}`);
+  },
+  /** 对已注册的应用级技能重跑准入流水线（DA 角色）。 */
+  rerunPipeline: (skill_iri: string) =>
+    request<PipelineRerunResponse>('/api/v1/skills/pipeline-rerun', {
+      method: 'POST', body: JSON.stringify({ skill_iri }),
+      headers: { 'X-Identity': adminIdentityHeader() },
+    }),
   /** 从 Git 仓库导入技能（后端 git clone + 解析 skill.yaml + 注册）。 */
   importGitSkill: (params: {
     repo_url: string; ref?: string; path?: string;

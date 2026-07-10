@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Puzzle, Search, Plus, X, GitBranch, CheckCircle2, AlertCircle, Play, Box, Shield, ShieldCheck, ShieldAlert, ShieldQuestion, Terminal, ArrowRight, Cpu, Boxes, Download, FileCode2, Loader2, Pencil, Trash2, ChevronDown, Lock } from 'lucide-react';
+import { Puzzle, Search, Plus, X, GitBranch, CheckCircle2, AlertCircle, Play, Box, Shield, ShieldCheck, ShieldAlert, ShieldQuestion, Terminal, Cpu, Boxes, Download, FileCode2, Loader2, Pencil, Trash2, ChevronDown, Lock, RefreshCw, MinusCircle } from 'lucide-react';
 import { useSkills } from '../api/hooks';
 import LiveBadge from '../components/LiveBadge';
 import { api } from '../api/client';
-import type { SkillMeta, SignatureStatus } from '../api/client';
+import type { SkillMeta, SignatureStatus, PipelineRun, PipelineStageStatus, PipelineSource } from '../api/client';
 
 export type SkillScope = 'system' | 'application';
 
@@ -106,6 +106,188 @@ const EMPTY_FORM: CreateForm = {
 function iriFromRepo(repo: string): string {
   const name = repo.trim().replace(/\.git$/i, '').split('/').filter(Boolean).pop();
   return name ? `skill://app/${name}` : '';
+}
+
+/** 阶段状态 → 徽标样式（对齐后端 StageStatus）。 */
+const STAGE_STATUS_UI: Record<PipelineStageStatus, { cls: string; Icon: typeof CheckCircle2; label: string }> = {
+  passed: { cls: 'bg-green-100 text-green-600 border-green-200', Icon: CheckCircle2, label: '通过' },
+  warning: { cls: 'bg-amber-100 text-amber-600 border-amber-200', Icon: AlertCircle, label: '告警' },
+  failed: { cls: 'bg-red-100 text-red-600 border-red-200', Icon: X, label: '失败' },
+  skipped: { cls: 'bg-gray-100 text-gray-400 border-gray-200', Icon: MinusCircle, label: '跳过' },
+};
+
+/** 触发来源 → 中文文案。 */
+const SOURCE_LABEL: Record<PipelineSource, string> = {
+  manual: '手动注册', git: 'Git 导入', rerun: '手动重跑',
+};
+
+/** 格式化耗时（毫秒 → 人类可读）。 */
+function fmtDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(ms < 10000 ? 2 : 1)}s`;
+}
+
+/** 格式化 ISO8601 时间为本地可读串。 */
+function fmtTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+/** 真实技能准入流水线面板：拉取该技能的运行记录，展示最近一次各阶段结论，支持重跑。 */
+function PipelinePanel({ skillIri, canRerun, onAfterRerun }: {
+  skillIri: string; canRerun: boolean; onAfterRerun?: () => void;
+}) {
+  const [runs, setRuns] = useState<PipelineRun[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [rerunning, setRerunning] = useState(false);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await api.pipelineRuns(skillIri, 20);
+      setRuns(res.runs || []);
+      setSelectedRunId((prev) => prev ?? res.runs?.[0]?.run_id ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [skillIri]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleRerun = async () => {
+    setRerunning(true); setError(null);
+    try {
+      const res = await api.rerunPipeline(skillIri);
+      const newId = res.pipeline_run?.run_id ?? null;
+      const listed = await api.pipelineRuns(skillIri, 20);
+      setRuns(listed.runs || []);
+      setSelectedRunId(newId ?? listed.runs?.[0]?.run_id ?? null);
+      onAfterRerun?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRerunning(false);
+    }
+  };
+
+  const activeRun = runs.find((r) => r.run_id === selectedRunId) ?? runs[0] ?? null;
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <h4 className="text-sm font-bold text-gray-900">技能准入流水线运行记录</h4>
+        {canRerun && (
+          <button
+            type="button"
+            onClick={handleRerun}
+            disabled={rerunning}
+            className="px-2.5 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 flex items-center gap-1.5 disabled:opacity-60"
+          >
+            {rerunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {rerunning ? '重跑中…' : '重跑流水线'}
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 text-xs text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-200">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-gray-500 py-6 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" /> 加载运行记录…
+        </div>
+      ) : runs.length === 0 ? (
+        <div className="text-sm text-gray-500 py-6 text-center">
+          暂无运行记录。重新注册或点击「重跑流水线」以生成。
+        </div>
+      ) : (
+        <>
+          {/* 历史运行选择器（最新在前） */}
+          <div className="flex flex-wrap gap-1.5">
+            {runs.map((r) => {
+              const active = r.run_id === (activeRun?.run_id ?? '');
+              return (
+                <button
+                  key={r.run_id}
+                  type="button"
+                  onClick={() => setSelectedRunId(r.run_id)}
+                  className={`px-2 py-1 text-xs rounded-md border flex items-center gap-1.5 ${
+                    active ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                  title={`${SOURCE_LABEL[r.source]} · ${fmtTime(r.started_at)}`}
+                >
+                  {r.gate_passed
+                    ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                    : <X className="w-3.5 h-3.5 text-red-500" />}
+                  {fmtTime(r.started_at)}
+                </button>
+              );
+            })}
+          </div>
+
+          {activeRun && (
+            <div className="space-y-3">
+              {/* 运行概要 */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className={`px-2 py-0.5 rounded-md border font-medium ${
+                  activeRun.published ? 'bg-green-50 text-green-700 border-green-200'
+                    : activeRun.gate_passed ? 'bg-amber-50 text-amber-700 border-amber-200'
+                    : 'bg-red-50 text-red-700 border-red-200'
+                }`}>
+                  {activeRun.published ? '已发布注册' : activeRun.gate_passed ? '门禁通过但未发布' : '门禁拦截'}
+                </span>
+                <span className="text-gray-500">来源：{SOURCE_LABEL[activeRun.source]}</span>
+                <span className="text-gray-500">触发者：{activeRun.triggered_by || '—'}</span>
+                <span className="text-gray-500">耗时：{fmtDuration(activeRun.duration_ms)}</span>
+                <span className="text-gray-500">版本：{activeRun.version || '—'}</span>
+              </div>
+              <p className="text-xs text-gray-600">{activeRun.summary}</p>
+
+              {/* 各阶段结论 */}
+              <div className="relative">
+                <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
+                <div className="space-y-4 relative">
+                  {activeRun.stages.map((st) => {
+                    const ui = STAGE_STATUS_UI[st.status];
+                    const Icon = ui.Icon;
+                    return (
+                      <div key={st.stage} className="flex items-start gap-4">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 border-2 border-white ${ui.cls}`}>
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <h5 className="text-sm font-bold text-gray-900">{st.title}</h5>
+                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded border ${ui.cls}`}>{ui.label}</span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">{st.summary} · 耗时 {fmtDuration(st.duration_ms)}</p>
+                          {st.details.length > 0 && (
+                            <ul className="mt-2 space-y-0.5">
+                              {st.details.map((d, i) => (
+                                <li key={i} className="text-xs text-gray-600 font-mono whitespace-pre-wrap break-words">{d}</li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 export default function SkillRegistry() {
@@ -784,80 +966,15 @@ export default function SkillRegistry() {
                         onClick={() => setShowPipeline((v) => !v)}
                         className="w-full px-3 py-2 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-700 flex items-center justify-between"
                       >
-                        <span className="flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5" /> CI/CD 流水线（演示，非真实数据）</span>
+                        <span className="flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5" /> 技能准入流水线（真实运行记录）</span>
                         <ChevronDown className={`w-4 h-4 transition-transform ${showPipeline ? 'rotate-180' : ''}`} />
                       </button>
-                      {showPipeline && (
-                    <div className="p-4">
-                      <h4 className="text-sm font-bold text-gray-900 mb-4">CI/CD 自动化流水线状态</h4>
-                      <div className="relative">
-                        {/* Pipeline Line */}
-                        <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
-                        
-                        <div className="space-y-6 relative">
-                          {/* Step 1 */}
-                          <div className="flex items-start gap-4">
-                            <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center shrink-0 z-10 border-2 border-white">
-                              <CheckCircle2 className="w-5 h-5" />
-                            </div>
-                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex-1">
-                              <h5 className="text-sm font-bold text-gray-900">代码静态检查 (Lint)</h5>
-                              <p className="text-xs text-gray-500 mt-1">耗时: 12s | 规范符合度: 100%</p>
-                            </div>
-                          </div>
-
-                          {/* Step 2 */}
-                          <div className="flex items-start gap-4">
-                            <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center shrink-0 z-10 border-2 border-white">
-                              <Shield className="w-4 h-4" />
-                            </div>
-                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex-1">
-                              <h5 className="text-sm font-bold text-gray-900">安全扫描 (CVE 检查)</h5>
-                              <p className="text-xs text-gray-500 mt-1">耗时: 45s | 发现高危漏洞: 0</p>
-                            </div>
-                          </div>
-
-                          {/* Step 3 */}
-                          <div className="flex items-start gap-4">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 border-2 border-white ${
-                              selectedSkill?.pipeline === 'success' || selectedSkill?.pipeline === 'canary' ? 'bg-green-100 text-green-600' :
-                              selectedSkill?.pipeline === 'running' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
-                            }`}>
-                              {selectedSkill?.pipeline === 'running' ? <Play className="w-4 h-4 animate-pulse" /> : 
-                               selectedSkill?.pipeline === 'failed' ? <X className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
-                            </div>
-                            <div className={`border rounded-lg p-3 flex-1 ${
-                              selectedSkill?.pipeline === 'failed' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
-                            }`}>
-                              <h5 className="text-sm font-bold text-gray-900">单元测试 & 冲突检测</h5>
-                              {selectedSkill?.pipeline === 'failed' ? (
-                                <p className="text-xs text-red-600 mt-1 font-medium">{selectedSkill?.conflictMsg || '测试覆盖率不足 80%'}</p>
-                              ) : (
-                                <p className="text-xs text-gray-500 mt-1">覆盖率: 92% | 无接口冲突</p>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Step 4 */}
-                          <div className="flex items-start gap-4">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 border-2 border-white ${
-                              selectedSkill?.status === 'published' ? 'bg-green-100 text-green-600' :
-                              selectedSkill?.status === 'canary' ? 'bg-purple-100 text-purple-600' : 'bg-gray-100 text-gray-400'
-                            }`}>
-                              {selectedSkill?.status === 'published' ? <CheckCircle2 className="w-5 h-5" /> : 
-                               selectedSkill?.status === 'canary' ? <GitBranch className="w-4 h-4" /> : <ArrowRight className="w-4 h-4" />}
-                            </div>
-                            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex-1">
-                              <h5 className="text-sm font-bold text-gray-900">发布状态 (渐进式加载)</h5>
-                              <p className="text-xs text-gray-500 mt-1">
-                                {selectedSkill?.status === 'published' ? '已全量发布至生产环境' :
-                                 selectedSkill?.status === 'canary' ? `金丝雀发布中，当前流量: ${selectedSkill?.canaryTraffic}` : '等待前置任务完成'}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                      {showPipeline && selectedSkill?.id && (
+                        <PipelinePanel
+                          skillIri={selectedSkill.id}
+                          canRerun={selectedSkill.scope === 'application'}
+                          onAfterRerun={refresh}
+                        />
                       )}
                     </div>
 
