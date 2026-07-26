@@ -1,0 +1,8 @@
+{
+  "label": "Agent 开发手册 (Agent Development)",
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "description": "面向 Agent 开发者的端到端指南：环境与身份、Agent 定义、Skill 开发、Prompt 治理、知识增强、模型注册、对外发布与排障。"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "label": "前端管理平台 (Admin Console)",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "description": "管理控制台每个功能菜单的操作说明，按左侧导航逐章编排。"
+  }
+}

@@ -1,0 +1,199 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+:root {
+  --ifm-color-primary: #6366f1;
+  --ifm-color-primary-dark: #4f46e5;
+  --ifm-color-primary-darker: #4338ca;
+  --ifm-color-primary-darkest: #3730a3;
+  --ifm-color-primary-light: #818cf8;
+  --ifm-color-primary-lighter: #93c5fd;
+  --ifm-color-primary-lightest: #c7d2fe;
+  --ifm-code-font-size: 90%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #a5b4fc;
+  --ifm-color-primary-dark: #818cf8;
+  --ifm-color-primary-darker: #6366f1;
+  --ifm-color-primary-darkest: #4f46e5;
+  --ifm-color-primary-light: #c7d2fe;
+  --ifm-color-primary-lighter: #e0e7ff;
+  --ifm-color-primary-lightest: #eef2ff;
+  --docusaurus-highlighted-code-line-bg: rgba(255, 255, 255, 0.1);
+  --ifm-background-color: #0b0f19; /* Deep Slate dark background */
+  --ifm-navbar-background-color: #0b0f19;
+  --ifm-card-background-color: #121824;
+}
+
+/* ===== Custom premium home page components ===== */
+/* CSS 变量：浅色与深色两套色板，供首页自定义组件使用 */
+:root {
+  --waos-hero-bg: radial-gradient(circle at top right, rgba(99, 102, 241, 0.08) 0%, #f8fafc 70%),
+                  radial-gradient(circle at bottom left, rgba(79, 70, 229, 0.05) 0%, #f1f5f9 60%);
+  --waos-hero-border: rgba(0, 0, 0, 0.06);
+  --waos-hero-title: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%);
+  --waos-hero-subtitle: #475569;
+  --waos-section-title: #1e293b;
+  --waos-card-bg: #ffffff;
+  --waos-card-border: rgba(0, 0, 0, 0.08);
+  --waos-card-hover-border: rgba(99, 102, 241, 0.3);
+  --waos-card-hover-shadow: 0 12px 30px rgba(0, 0, 0, 0.08), 0 0 15px rgba(99, 102, 241, 0.08);
+  --waos-card-title: #1e293b;
+  --waos-card-desc: #64748b;
+  --waos-secondary-border: rgba(0, 0, 0, 0.12);
+  --waos-secondary-color: #475569;
+  --waos-secondary-hover-bg: rgba(99, 102, 241, 0.06);
+  --waos-secondary-hover-border: rgba(99, 102, 241, 0.3);
+  --waos-secondary-hover-color: #4338ca;
+  --waos-glow-shadow: 0 4px 12px rgba(99, 102, 241, 0.15);
+  --waos-glow-hover-shadow: 0 6px 20px rgba(99, 102, 241, 0.3);
+}
+
+[data-theme='dark'] {
+  --waos-hero-bg: radial-gradient(circle at top right, rgba(99, 102, 241, 0.15) 0%, rgba(11, 15, 25, 1) 70%),
+                  radial-gradient(circle at bottom left, rgba(79, 70, 229, 0.1) 0%, rgba(11, 15, 25, 1) 60%);
+  --waos-hero-border: rgba(255, 255, 255, 0.05);
+  --waos-hero-title: linear-gradient(135deg, #e0e7ff 0%, #a5b4fc 50%, #818cf8 100%);
+  --waos-hero-subtitle: #94a3b8;
+  --waos-section-title: #f8fafc;
+  --waos-card-bg: rgba(255, 255, 255, 0.02);
+  --waos-card-border: rgba(255, 255, 255, 0.04);
+  --waos-card-hover-border: rgba(99, 102, 241, 0.35);
+  --waos-card-hover-shadow: 0 12px 30px rgba(0, 0, 0, 0.4), 0 0 15px rgba(99, 102, 241, 0.1);
+  --waos-card-title: #f8fafc;
+  --waos-card-desc: #94a3b8;
+  --waos-secondary-border: rgba(255, 255, 255, 0.15);
+  --waos-secondary-color: #cbd5e1;
+  --waos-secondary-hover-bg: rgba(255, 255, 255, 0.05);
+  --waos-secondary-hover-border: rgba(255, 255, 255, 0.3);
+  --waos-secondary-hover-color: #f8fafc;
+  --waos-glow-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+  --waos-glow-hover-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+}
+
+.hero--primary {
+  background: var(--waos-hero-bg);
+  border-bottom: 1px solid var(--waos-hero-border);
+  padding: 6rem 2rem !important;
+}
+
+.hero-title-gradient {
+  background: var(--waos-hero-title);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 800;
+  font-size: 3.5rem;
+  letter-spacing: -0.02em;
+}
+
+.hero-subtitle {
+  color: var(--waos-hero-subtitle);
+  max-width: 800px;
+  margin: 1.5rem auto 2.5rem auto;
+  font-size: 1.35rem;
+  line-height: 1.6;
+}
+
+.cards-container {
+  padding: 4rem 0;
+}
+
+.section-title {
+  color: var(--waos-section-title);
+}
+
+.card-premium {
+  background: var(--waos-card-bg);
+  border: 1px solid var(--waos-card-border);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+              box-shadow 0.3s ease, 
+              border-color 0.3s ease;
+  padding: 2.25rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.card-premium:hover {
+  transform: translateY(-6px);
+  border-color: var(--waos-card-hover-border);
+  box-shadow: var(--waos-card-hover-shadow);
+}
+
+.card-icon {
+  font-size: 2rem;
+  margin-bottom: 1.25rem;
+  display: inline-block;
+}
+
+.card-premium-title {
+  color: var(--waos-card-title);
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.card-premium-desc {
+  color: var(--waos-card-desc);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.glow-btn {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  font-weight: 600 !important;
+  font-size: 1.05rem !important;
+  padding: 0.85rem 2rem !important;
+  border-radius: 8px !important;
+  border: none !important;
+  box-shadow: var(--waos-glow-shadow);
+}
+
+.glow-btn:hover {
+  box-shadow: var(--waos-glow-hover-shadow);
+  transform: translateY(-1px);
+}
+
+.glow-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0));
+  transform: skewX(-25deg) translateX(-100%);
+  transition: transform 0.6s ease;
+}
+
+.glow-btn:hover::after {
+  transform: skewX(-25deg) translateX(100%);
+}
+
+.secondary-btn {
+  background: transparent !important;
+  border: 1px solid var(--waos-secondary-border) !important;
+  color: var(--waos-secondary-color) !important;
+  font-weight: 600 !important;
+  font-size: 1.05rem !important;
+  padding: 0.85rem 2rem !important;
+  border-radius: 8px !important;
+  transition: all 0.3s ease;
+}
+
+.secondary-btn:hover {
+  background: var(--waos-secondary-hover-bg) !important;
+  border-color: var(--waos-secondary-hover-border) !important;
+  color: var(--waos-secondary-hover-color) !important;
+}
+

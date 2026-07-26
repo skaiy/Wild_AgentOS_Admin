@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 构建项目根目录的 docs-site（Docusaurus，baseUrl=/docs-site/）并嵌入管理台 public/docs-site，
+# 构建项目内 docs-site（Docusaurus，baseUrl=/docs-site/）并嵌入管理台 public/docs-site，
 # 使 vite build 后文档站与管理台同源、同容器提供服务（菜单「平台文档」以 iframe 内嵌）。
 set -euo pipefail
 
 ADMIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DOCS_SITE_DIR="$(cd "$ADMIN_DIR/../.." && pwd)/docs-site"
+DOCS_SITE_DIR="$ADMIN_DIR/docs-site"
 TARGET_DIR="$ADMIN_DIR/public/docs-site"
 
 if [ ! -d "$DOCS_SITE_DIR" ]; then

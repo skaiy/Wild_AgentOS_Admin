@@ -2,6 +2,10 @@ node_modules/
 build/
 dist/
 public/docs-site/
+docs-site/node_modules/
+docs-site/build/
+docs-site/.docusaurus/
+docs-site/docs/
 coverage/
 .DS_Store
 *.log
