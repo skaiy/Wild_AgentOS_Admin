@@ -5,6 +5,14 @@ import { useKbCategories, useKnowledgeBases } from '../api/hooks';
 import { api, type KbCategory, type KbDocument } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import KgGraph from '../components/KgGraph';
+import { TruncatedText } from '../components/TruncatedText';
+
+export const GRAPH_TRIPLE_BATCH_SIZE = 5000;
+export const GRAPH_TRIPLE_LIST_PAGE_SIZE = 100;
+
+export function graphTriplePageQuery(offset: number): string {
+  return `SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT ${GRAPH_TRIPLE_BATCH_SIZE} OFFSET ${offset}`;
+}
 
 /** ISO 时间转本地日期时间（无值返回占位符）。 */
 function fmtDate(s?: string): string {
@@ -173,12 +181,41 @@ export default function KnowledgeBases() {
   const [triLoading, setTriLoading] = useState(false);
   const [triError, setTriError] = useState<string | null>(null);
   const [triView, setTriView] = useState<'graph' | 'list'>('graph');
+  const [triProgress, setTriProgress] = useState({ loaded: 0, total: 0 });
+  const [triListPage, setTriListPage] = useState(0);
   useEffect(() => {
-    if (!viewKb) { setTriples(null); setTriError(null); return; }
+    if (!viewKb) {
+      setTriples(null);
+      setTriError(null);
+      setTriProgress({ loaded: 0, total: 0 });
+      return;
+    }
     let cancelled = false;
-    setTriLoading(true); setTriError(null); setTriples(null);
-    api.kgQuery('SELECT ?s ?p ?o WHERE { ?s ?p ?o } LIMIT 100', viewKb.graph)
-      .then(r => { if (!cancelled) setTriples(r.results as Record<string, string>[]); })
+    setTriLoading(true);
+    setTriError(null);
+    setTriples(null);
+    setTriListPage(0);
+    setTriProgress({ loaded: 0, total: 0 });
+    const loadAllTriples = async () => {
+      const countResponse = await api.kgQuery(
+        'SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }',
+        viewKb.graph,
+      );
+      const total = Number((countResponse.results[0] as Record<string, string> | undefined)?.['?count'] ?? 0);
+      if (!Number.isFinite(total)) throw new Error('无法读取图谱三元组总数');
+      if (!cancelled) setTriProgress({ loaded: 0, total });
+
+      const allTriples: Record<string, string>[] = [];
+      for (let offset = 0; offset < total; offset += GRAPH_TRIPLE_BATCH_SIZE) {
+        const response = await api.kgQuery(graphTriplePageQuery(offset), viewKb.graph);
+        const page = response.results as Record<string, string>[];
+        allTriples.push(...page);
+        if (!cancelled) setTriProgress({ loaded: allTriples.length, total });
+        if (page.length < GRAPH_TRIPLE_BATCH_SIZE) break;
+      }
+      if (!cancelled) setTriples(allTriples);
+    };
+    loadAllTriples()
       .catch(e => { if (!cancelled) setTriError(e?.message ?? String(e)); })
       .finally(() => { if (!cancelled) setTriLoading(false); });
     return () => { cancelled = true; };
@@ -290,7 +327,7 @@ export default function KnowledgeBases() {
           ) : (
             <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg">
               {catList.map(c => (
-                <div key={c.id} className="flex items-center gap-3 px-4 py-3">
+                <div key={c.id} className="flex items-center gap-3 px-4 py-3 min-w-0">
                   {editingCat?.id === c.id ? (
                     <>
                       <input
@@ -312,14 +349,15 @@ export default function KnowledgeBases() {
                     </>
                   ) : (
                     <>
-                      <span className="flex items-center gap-2 font-medium text-gray-900">
-                        <Tag className="w-4 h-4 text-amber-500" /> {c.name}
+                      <span className="flex items-center gap-2 font-medium text-gray-900 min-w-0 max-w-[40%]">
+                        <Tag className="w-4 h-4 text-amber-500 shrink-0" />
+                        <TruncatedText text={c.name} />
                       </span>
-                      <span className="text-sm text-gray-500 flex-1 truncate">{c.description}</span>
-                      <button onClick={() => setEditingCat({ ...c })} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md" title="编辑">
+                      <TruncatedText text={c.description} fallback="" className="text-sm text-gray-500 flex-1 min-w-0" />
+                      <button onClick={() => setEditingCat({ ...c })} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-md shrink-0" title="编辑">
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button onClick={() => removeCategory(c.id)} disabled={catBusy} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md" title="删除">
+                      <button onClick={() => removeCategory(c.id)} disabled={catBusy} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md shrink-0" title="删除">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </>
@@ -397,27 +435,37 @@ export default function KnowledgeBases() {
             {activeRows.map((kb, i) => (
               <tr key={i} className="hover:bg-gray-50">
                 <td className="px-6 py-4 font-medium text-gray-900">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0 max-w-[240px]">
                     {kb.kbType === 'graph' ? <Share2 className="w-4 h-4 text-purple-500 shrink-0" /> : <Database className="w-4 h-4 text-blue-500 shrink-0" />}
-                    <span className={kb.kbType === 'graph' ? 'font-mono text-xs break-all' : ''}>{kb.kbType === 'graph' ? kb.graph : kb.name}</span>
+                    <TruncatedText
+                      text={kb.kbType === 'graph' ? kb.graph : kb.name}
+                      className={kb.kbType === 'graph' ? 'font-mono text-xs' : ''}
+                    />
                   </div>
-                  {kb.createdBy && <div className="text-xs text-gray-400 mt-0.5 ml-6">创建人: {kb.createdBy}</div>}
+                  {kb.createdBy && (
+                    <TruncatedText as="div" text={`创建人: ${kb.createdBy}`} className="text-xs text-gray-400 mt-0.5 ml-6 max-w-[214px]" />
+                  )}
                 </td>
                 <td className="px-6 py-4">
                   {kbTab === 'graph'
-                    ? <span className="text-xs text-gray-500">{kb.source}</span>
+                    ? <TruncatedText as="div" text={kb.source} className="text-xs text-gray-500 max-w-[160px]" />
                     : (kb.namespace
-                        ? <span className="font-mono text-xs text-gray-500 break-all">{kb.namespace}</span>
+                        ? <TruncatedText as="div" text={kb.namespace} className="font-mono text-xs text-gray-500 max-w-[180px]" />
                         : <span className="text-gray-300 text-xs">—</span>)}
                 </td>
                 <td className="px-6 py-4">
                   {kb.category
-                    ? <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded-md text-xs flex items-center gap-1 w-fit"><Tag className="w-3 h-3" />{kb.category}</span>
+                    ? (
+                      <span className="bg-amber-50 text-amber-700 px-2 py-1 rounded-md text-xs flex items-center gap-1 w-fit max-w-[160px] min-w-0">
+                        <Tag className="w-3 h-3 shrink-0" />
+                        <TruncatedText text={kb.category} />
+                      </span>
+                    )
                     : <span className="text-gray-300 text-xs">未分类</span>}
                 </td>
                 <td className="px-6 py-4">
                   {kb.description
-                    ? <span className="text-xs text-gray-600 line-clamp-2 max-w-[220px]" title={kb.description}>{kb.description}</span>
+                    ? <TruncatedText text={kb.description} lines={2} className="text-xs text-gray-600 max-w-[220px]" />
                     : <span className="text-gray-300 text-xs">—</span>}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500">{fmtDate(kb.createdAt)}</td>
@@ -467,22 +515,22 @@ export default function KnowledgeBases() {
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
               className="relative w-full max-w-3xl bg-white h-full shadow-2xl flex flex-col"
             >
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    <Share2 className="w-5 h-5 text-purple-600" />
-                    <span className="font-mono text-base">{viewKb.graph}</span>
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3 bg-gray-50">
+                <div className="min-w-0">
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 min-w-0">
+                    <Share2 className="w-5 h-5 text-purple-600 shrink-0" />
+                    <TruncatedText text={viewKb.graph} className="font-mono text-base" />
                   </h2>
-                  <p className="text-sm text-gray-500 mt-1">关联智能体: {viewKb.agent}</p>
+                  <TruncatedText as="p" text={`关联智能体: ${viewKb.agent}`} className="text-sm text-gray-500 mt-1" />
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 shrink-0">
                   {triples && triples.length > 0 && (
                     <div className="flex bg-white border border-gray-200 rounded-lg p-0.5">
                       <button
                         onClick={() => setTriView('graph')}
                         className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${triView === 'graph' ? 'bg-purple-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}
                       >
-                        <Network className="w-3.5 h-3.5" /> 图谱视图
+                        <Network className="w-3.5 h-3.5" /> 3D 图谱
                       </button>
                       <button
                         onClick={() => setTriView('list')}
@@ -501,10 +549,25 @@ export default function KnowledgeBases() {
               <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
                 <div className="bg-purple-50 text-purple-800 text-sm p-3 rounded-lg border border-purple-100 flex items-center gap-2 mb-4">
                   <Share2 className="w-4 h-4" />
-                  实时查询命名图三元组 (Subject &rarr; Predicate &rarr; Object)，最多 100 条
+                  WebGL 3D 命名图 (Subject &rarr; Predicate &rarr; Object)，全量加载
                 </div>
-                {triLoading && <div className="text-sm text-gray-500 text-center py-8">查询中…</div>}
-                {triError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{triError}</div>}
+                {triLoading && (
+                  <div className="rounded-xl border border-purple-100 bg-white p-5 text-sm text-gray-600 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span>正在分批加载全部三元组…</span>
+                      <span className="font-mono text-xs text-purple-700">
+                        {triProgress.loaded.toLocaleString()} / {triProgress.total.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-purple-100">
+                      <div
+                        className="h-full rounded-full bg-purple-600 transition-all duration-300"
+                        style={{ width: `${triProgress.total > 0 ? Math.min(100, (triProgress.loaded / triProgress.total) * 100) : 3}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {triError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-wrap break-all">{triError}</div>}
                 {triples !== null && triples.length === 0 && !triLoading && (
                   <div className="text-sm text-gray-400 text-center py-8">该命名图暂无三元组数据</div>
                 )}
@@ -515,22 +578,54 @@ export default function KnowledgeBases() {
                 )}
                 {triples && triples.length > 0 && triView === 'list' && (
                   <div className="space-y-3">
-                    {triples.map((t, idx) => (
-                      <div key={idx} className="bg-white border border-gray-200 rounded-lg p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex-1 bg-blue-50 text-blue-700 px-3 py-2 rounded-md border border-blue-100 text-center font-medium text-xs truncate" title={t['?s']}>
-                          {t['?s']}
-                        </div>
+                    <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500">
+                      <span>共 {triples.length.toLocaleString()} 条，列表按每页 {GRAPH_TRIPLE_LIST_PAGE_SIZE} 条展示</span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={triListPage === 0}
+                          onClick={() => setTriListPage((page) => Math.max(0, page - 1))}
+                          className="rounded border border-gray-200 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          上一页
+                        </button>
+                        <span>{triListPage + 1} / {Math.ceil(triples.length / GRAPH_TRIPLE_LIST_PAGE_SIZE)}</span>
+                        <button
+                          type="button"
+                          disabled={(triListPage + 1) * GRAPH_TRIPLE_LIST_PAGE_SIZE >= triples.length}
+                          onClick={() => setTriListPage((page) => page + 1)}
+                          className="rounded border border-gray-200 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          下一页
+                        </button>
+                      </div>
+                    </div>
+                    {triples
+                      .slice(
+                        triListPage * GRAPH_TRIPLE_LIST_PAGE_SIZE,
+                        (triListPage + 1) * GRAPH_TRIPLE_LIST_PAGE_SIZE,
+                      )
+                      .map((t, idx) => (
+                      <div key={`${triListPage}-${idx}`} className="bg-white border border-gray-200 rounded-lg p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow">
+                        <TruncatedText
+                          as="div"
+                          text={t['?s']}
+                          className="flex-1 min-w-0 bg-blue-50 text-blue-700 px-3 py-2 rounded-md border border-blue-100 text-center font-medium text-xs"
+                        />
                         <div className="flex items-center w-32 shrink-0">
                           <div className="h-px bg-gray-300 flex-1"></div>
-                          <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200 z-10 whitespace-nowrap truncate max-w-[90px]" title={t['?p']}>
-                            {t['?p']}
-                          </span>
+                          <TruncatedText
+                            text={t['?p']}
+                            className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full border border-gray-200 z-10 max-w-[90px]"
+                          />
                           <div className="h-px bg-gray-300 flex-1"></div>
                           <ChevronRight className="w-3 h-3 text-gray-400 -ml-1" />
                         </div>
-                        <div className="flex-1 bg-emerald-50 text-emerald-700 px-3 py-2 rounded-md border border-emerald-100 text-center font-medium text-xs truncate" title={t['?o']}>
-                          {t['?o']}
-                        </div>
+                        <TruncatedText
+                          as="div"
+                          text={t['?o']}
+                          className="flex-1 min-w-0 bg-emerald-50 text-emerald-700 px-3 py-2 rounded-md border border-emerald-100 text-center font-medium text-xs"
+                        />
                       </div>
                     ))}
                   </div>
@@ -555,11 +650,11 @@ export default function KnowledgeBases() {
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
               className="relative w-full max-w-3xl bg-white h-full shadow-2xl flex flex-col"
             >
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                    {docsKb.name}
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3 bg-gray-50">
+                <div className="min-w-0">
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 min-w-0">
+                    <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                    <TruncatedText text={docsKb.name} />
                   </h2>
                   <p className="text-sm text-gray-500 mt-1">
                     原文档台账
@@ -570,7 +665,7 @@ export default function KnowledgeBases() {
                     )}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 shrink-0">
                   <button
                     onClick={triggerReindex}
                     disabled={reindexing || !docs || docs.length === 0 || docsMeta.reindex_status === 'reindexing'}
@@ -586,10 +681,10 @@ export default function KnowledgeBases() {
               </div>
               <div className="flex-1 overflow-auto p-6">
                 {reindexMsg && (
-                  <div className="mb-3 text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">{reindexMsg}</div>
+                  <div className="mb-3 text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 whitespace-pre-wrap break-all">{reindexMsg}</div>
                 )}
                 {docsLoading && <div className="text-sm text-gray-400 text-center py-8">加载中…</div>}
-                {docsError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{docsError}</div>}
+                {docsError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-wrap break-all">{docsError}</div>}
                 {docs !== null && docs.length === 0 && !docsLoading && (
                   <div className="text-sm text-gray-400 text-center py-12">
                     暂无原文档。请在建库弹窗上传 TXT/Markdown/CSV/JSON 文件；上传后原文将持久化并可在此重建。
@@ -614,14 +709,17 @@ export default function KnowledgeBases() {
                         return (
                           <tr key={d.doc_id} className="hover:bg-gray-50">
                             <td className="py-2 pr-3 font-medium text-gray-900">
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 min-w-0 max-w-[220px]">
                                 <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                                <span className="truncate max-w-[200px]" title={d.filename}>{d.filename}</span>
+                                <TruncatedText text={d.filename} />
                               </div>
                               {(d.skipped_reason || d.persist_warning) && (
-                                <div className="text-xs text-amber-600 mt-0.5 ml-5" title={d.skipped_reason || d.persist_warning}>
-                                  {d.skipped_reason || d.persist_warning}
-                                </div>
+                                <TruncatedText
+                                  as="div"
+                                  text={d.skipped_reason || d.persist_warning}
+                                  lines={2}
+                                  className="text-xs text-amber-600 mt-0.5 ml-5 max-w-[200px]"
+                                />
                               )}
                             </td>
                             <td className="py-2 pr-3 text-gray-600 whitespace-nowrap">{fmtSize(d.size)}</td>
@@ -775,8 +873,8 @@ export default function KnowledgeBases() {
                       {vectorFiles.length > 0 && (
                         <ul className="mt-2 space-y-1">
                           {vectorFiles.map((f, i) => (
-                            <li key={i} className="flex items-center justify-between text-xs bg-gray-50 border border-gray-200 rounded-md px-2 py-1">
-                              <span className="truncate">{f.name} · {(f.size / 1024).toFixed(1)} KB</span>
+                            <li key={i} className="flex items-center justify-between gap-2 text-xs bg-gray-50 border border-gray-200 rounded-md px-2 py-1 min-w-0">
+                              <TruncatedText text={`${f.name} · ${(f.size / 1024).toFixed(1)} KB`} className="min-w-0" />
                               <button
                                 onClick={() => setVectorFiles(vectorFiles.filter((_, j) => j !== i))}
                                 className="text-gray-400 hover:text-red-500 ml-2 shrink-0"
@@ -817,8 +915,8 @@ export default function KnowledgeBases() {
                         <p className="text-xs mt-1">支持 CSV（subject,predicate,object[,object_type]）/ JSONL / N-Triples</p>
                       </label>
                       {graphFile && (
-                        <div className="mt-2 flex items-center justify-between text-xs bg-gray-50 border border-gray-200 rounded-md px-2 py-1">
-                          <span className="truncate">{graphFile.name} · {(graphFile.size / 1024).toFixed(1)} KB</span>
+                        <div className="mt-2 flex items-center justify-between gap-2 text-xs bg-gray-50 border border-gray-200 rounded-md px-2 py-1 min-w-0">
+                          <TruncatedText text={`${graphFile.name} · ${(graphFile.size / 1024).toFixed(1)} KB`} className="min-w-0" />
                           <button onClick={() => setGraphFile(null)} className="text-gray-400 hover:text-red-500 ml-2 shrink-0">
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -829,14 +927,16 @@ export default function KnowledgeBases() {
                 )}
 
                 {ingestMsg && (
-                  <div className={`text-sm rounded-lg px-3 py-2 border ${justCreated ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                  <div className={`text-sm rounded-lg px-3 py-2 border whitespace-pre-wrap break-all ${justCreated ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
                     {ingestMsg}
                   </div>
                 )}
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end items-center gap-3">
-                {createErr && <span className="text-sm text-red-600 mr-auto">{createErr}</span>}
+                {createErr && (
+                  <span className="text-sm text-red-600 mr-auto min-w-0 max-h-16 overflow-y-auto whitespace-pre-wrap break-all">{createErr}</span>
+                )}
                 {justCreated ? (
                   <button onClick={closeCreate} className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg">
                     完成
@@ -882,12 +982,12 @@ export default function KnowledgeBases() {
           >
             <Play className="w-4 h-4" /> {kgLoading ? '查询中…' : '执行查询'}
           </button>
-          {kgError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{kgError}</div>}
+          {kgError && <div className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 whitespace-pre-wrap break-all">{kgError}</div>}
           {kgResults !== null && (
-            <div className="overflow-auto max-h-64 border border-gray-200 rounded-lg">
+            <div className="overflow-y-auto max-h-64 border border-gray-200 rounded-lg">
               {kgResults.length === 0
                 ? <div className="text-sm text-gray-500 p-4 text-center">无结果</div>
-                : <pre className="text-xs p-4 font-mono whitespace-pre-wrap">{JSON.stringify(kgResults, null, 2)}</pre>
+                : <pre className="text-xs p-4 font-mono whitespace-pre-wrap break-all">{JSON.stringify(kgResults, null, 2)}</pre>
               }
             </div>
           )}

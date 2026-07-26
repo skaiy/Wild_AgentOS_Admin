@@ -184,6 +184,16 @@ describe('agent CRUD & task context', () => {
     expect(calls[0].init.method).toBe('DELETE');
   });
 
+  it('agentChat sends uploaded image URLs', async () => {
+    const { api } = await import('../client');
+    await api.agentChat('abc-123', '分析图片', ['/api/v1/images/img-1']);
+    expect(calls[0].url).toContain('/api/v1/agents/abc-123/chat');
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({
+      message: '分析图片',
+      images: ['/api/v1/images/img-1'],
+    });
+  });
+
   it('createTask carries user_id/session_id in body', async () => {
     const { api } = await import('../client');
     await api.createTask('诊断 E05 故障', 'user-1', 'sess-9');
@@ -191,5 +201,13 @@ describe('agent CRUD & task context', () => {
     expect(JSON.parse(calls[0].init.body as string)).toEqual({
       user_input: '诊断 E05 故障', user_id: 'user-1', session_id: 'sess-9',
     });
+  });
+
+  it('keeps JSON content type when a request adds identity headers', async () => {
+    const { api } = await import('../client');
+    await api.createApiClient({ name: '测试调用方' });
+    const headers = calls[0].init.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(headers['X-Identity']).toBeTruthy();
   });
 });

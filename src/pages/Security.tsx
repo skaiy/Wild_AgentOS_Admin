@@ -1,6 +1,7 @@
 import { ShieldCheck, ShieldAlert, Lock, EyeOff, FileWarning } from 'lucide-react';
 import { useGuardStats, useGuardAudit } from '../api/hooks';
 import LiveBadge from '../components/LiveBadge';
+import TruncatedText from '../components/TruncatedText';
 
 export default function Security() {
   const stats = useGuardStats();
@@ -15,7 +16,7 @@ export default function Security() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">安全与合规 (AI Security)</h1>
           <p className="text-sm text-gray-500 mt-1">OWASP LLM Top 10 防护、数据脱敏与越权审计</p>
         </div>
@@ -68,6 +69,7 @@ export default function Security() {
           <ShieldCheck className="w-5 h-5 text-blue-600" />
           <h2 className="text-lg font-bold text-gray-900">近期安全事件审计日志</h2>
         </div>
+        <div className="overflow-x-auto">
         <table className="w-full text-left text-sm text-gray-600">
           <thead className="bg-gray-50 text-gray-700 font-medium border-b border-gray-200">
             <tr>
@@ -85,11 +87,17 @@ export default function Security() {
                 return (
                   <tr key={i} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
-                    <td className="px-6 py-4 font-medium text-gray-900">工具调用校验{log.pre_injected ? ' · 预注入' : ''}</td>
-                    <td className="px-6 py-4">{log.agent_id || '-'} / {log.tool_name}</td>
-                    <td className="px-6 py-4">{log.error ? log.error : passed ? '校验通过' : '校验未通过'}{log.retry_count > 0 ? ` (重试 ${log.retry_count})` : ''}</td>
+                    <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">工具调用校验{log.pre_injected ? ' · 预注入' : ''}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${passed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      <TruncatedText as="div" text={log.agent_id} fallback="-" className="max-w-[14rem]" />
+                      <TruncatedText as="div" text={log.tool_name} className="max-w-[14rem] text-xs text-gray-400" />
+                    </td>
+                    <td className="px-6 py-4">
+                      <TruncatedText as="div" lines={2} className="max-w-[24rem]"
+                        text={`${log.error ? log.error : passed ? '校验通过' : '校验未通过'}${log.retry_count > 0 ? ` (重试 ${log.retry_count})` : ''}`} />
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`inline-block whitespace-nowrap px-2 py-1 rounded-full text-xs font-medium ${passed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                         {passed ? '通过' : '已拦截'}
                       </span>
                     </td>
@@ -105,6 +113,7 @@ export default function Security() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

@@ -16,12 +16,35 @@ import SkillRegistry from './pages/SkillRegistry';
 import MCPHub from './pages/MCPHub';
 import Security from './pages/Security';
 import Settings from './pages/Settings';
-import Documentation from './pages/Documentation';
-import OperationsManual from './pages/OperationsManual';
+import DocsSite from './pages/DocsSite';
 import TaskConsole from './pages/TaskConsole';
 import PromptManagement from './pages/PromptManagement';
 import Login from './pages/Login';
 import { isAuthenticated } from './auth';
+
+const searchablePages = [
+  { id: 'agents', terms: ['智能体', 'agent', '业务智能体'] },
+  { id: 'console', terms: ['任务', 'task', '控制台', '执行记录'] },
+  { id: 'runtime', terms: ['运行时', '内核', '日志', 'runtime', 'log'] },
+  { id: 'overview', terms: ['总览', '大盘', '业务分布', 'overview'] },
+  { id: 'memory', terms: ['记忆', 'memory', '黑板'] },
+  { id: 'knowledge', terms: ['知识', '知识库', 'knowledge', 'ontology'] },
+  { id: 'batch', terms: ['批处理', '运维', 'batch'] },
+  { id: 'registry', terms: ['技能', 'skill', 'registry'] },
+  { id: 'prompts', terms: ['prompt', '提示词', '版本'] },
+  { id: 'mcp', terms: ['mcp', '枢纽'] },
+  { id: 'security', terms: ['安全', '合规', 'security'] },
+  { id: 'settings', terms: ['系统设置', '设置', '配置', 'settings'] },
+  { id: 'docsite', terms: ['文档', '平台文档', '架构', '愿景', '操作手册', '开发手册', 'docs', 'manual'] },
+];
+
+export function findPageByQuery(query: string): string | undefined {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return undefined;
+  return searchablePages.find(({ terms }) =>
+    terms.some((term) => term.toLocaleLowerCase().includes(normalized) || normalized.includes(term.toLocaleLowerCase())),
+  )?.id;
+}
 
 /** 从 URL hash 解析初始页面（支持深链与截图脚本直达各页）。 */
 function pageFromHash(): string {
@@ -41,6 +64,13 @@ export default function App() {
     }
   };
 
+  const handleSearch = (query: string) => {
+    const page = findPageByQuery(query);
+    if (!page) return false;
+    setCurrentPage(page);
+    return true;
+  };
+
   // 响应浏览器前进/后退与外部 hash 变更。
   useEffect(() => {
     const onHashChange = () => setCurrentPageState(pageFromHash());
@@ -54,7 +84,7 @@ export default function App() {
 
   const renderPage = () => {
     switch (currentPage) {
-      case 'overview': return <Overview />;
+      case 'overview': return <Overview onNavigate={setCurrentPage} />;
       case 'agents': return <AgentManagement />;
       case 'runtime': return <RuntimeKernel />;
       case 'memory': return <MemoryCenter />;
@@ -66,11 +96,13 @@ export default function App() {
       case 'mcp': return <MCPHub />;
       case 'security': return <Security />;
       case 'settings': return <Settings />;
-      case 'documentation': return <Documentation />;
-      case 'manual': return <OperationsManual />;
+      // documentation/manual 为旧文档页深链，统一由内嵌文档站承载。
+      case 'docsite':
+      case 'documentation':
+      case 'manual': return <DocsSite />;
       case 'console': return <TaskConsole />;
       case 'prompts': return <PromptManagement />;
-      default: return <Overview />;
+      default: return <Overview onNavigate={setCurrentPage} />;
     }
   };
 
@@ -78,7 +110,7 @@ export default function App() {
     <div className="flex h-screen bg-gray-50 text-gray-900 font-sans">
       <Sidebar currentPage={currentPage} setCurrentPage={setCurrentPage} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header onLogout={() => setAuthed(false)} />
+        <Header onLogout={() => setAuthed(false)} onSearch={handleSearch} />
         <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-50 p-6">
           {renderPage()}
         </main>

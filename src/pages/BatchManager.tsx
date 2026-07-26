@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Layers3, RefreshCw, Play, Square, Activity, Cpu } from 'lucide-react';
 import { api, type BatchAgentRow, type BatchAgentStatus } from '../api/client';
+import TruncatedText from '../components/TruncatedText';
 
 /** 平台运维态：批处理 Agent 运维台（启停 / 窗口 / 指标）。 */
 function statusText(s: BatchAgentStatus | null): string {
@@ -42,16 +43,16 @@ export default function BatchManager() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">批处理运维台 (Batch Agents)</h1>
           <p className="text-sm text-gray-500 mt-1">平台运维态 · 滑动窗口事件处理，按 name + business_domain 组织</p>
         </div>
         {data && (
-          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${data.running ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+          <span className={`shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${data.running ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
             系统 {data.running ? '运行中' : '未运行'}
           </span>
         )}
-        <button onClick={load} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">
+        <button onClick={load} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 shrink-0">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> 刷新
         </button>
       </div>
@@ -68,18 +69,18 @@ export default function BatchManager() {
         {data?.agents.map(a => (
           <div key={a.name} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
             <div className="flex items-start gap-3 mb-4">
-              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Layers3 className="w-6 h-6" /></div>
+              <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg shrink-0"><Layers3 className="w-6 h-6" /></div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-lg font-bold text-gray-900 truncate">{a.name}</h2>
-                  <span className={`px-2 py-0.5 rounded-md text-xs ${statusStyle(a.status)}`}>{statusText(a.status)}</span>
+                  <h2 className="text-lg font-bold text-gray-900 min-w-0"><TruncatedText text={a.name} /></h2>
+                  <span className={`px-2 py-0.5 rounded-md text-xs shrink-0 ${statusStyle(a.status)}`}>{statusText(a.status)}</span>
                 </div>
-                <p className="text-xs text-gray-500 mt-0.5 truncate">{a.config?.description || '—'}</p>
+                <p className="text-xs text-gray-500 mt-0.5"><TruncatedText as="div" lines={2} text={a.config?.description} /></p>
                 {a.config && (
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{a.config.business_domain}</span>
-                    {a.config.model && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{a.config.model}</span>}
-                    {!a.config.enabled && <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded">已禁用</span>}
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded shrink-0">{a.config.business_domain}</span>
+                    {a.config.model && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded shrink-0">{a.config.model}</span>}
+                    {!a.config.enabled && <span className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded shrink-0">已禁用</span>}
                   </div>
                 )}
               </div>

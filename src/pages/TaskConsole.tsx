@@ -4,10 +4,35 @@ import { motion, AnimatePresence } from 'motion/react';
 import { api, streamTask, type RealtimeStatus, type ExecutionDetails } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import { useHealth } from '../api/hooks';
+import { TruncatedText, tooltipText } from '../components/TruncatedText';
 
 interface LogEntry { id: number; time: string; event: string; data: unknown }
 interface ThoughtItem { agent_id?: string; thought?: string; action?: string }
 interface ToolCallItem { call_id?: string; tool_name?: string; arguments?: unknown; sequence?: number; agent_id?: string; result?: string; success?: boolean }
+interface SavedConsoleState {
+  prompt?: string;
+  userId?: string;
+  sessionId?: string;
+  taskIri?: string | null;
+  status?: RealtimeStatus | null;
+  details?: ExecutionDetails | null;
+  logs?: LogEntry[];
+  thoughts?: ThoughtItem[];
+  toolCalls?: ToolCallItem[];
+  llmContent?: string;
+  llmReasoning?: string;
+  livePhase?: string | null;
+}
+
+const TASK_CONSOLE_STORAGE_KEY = 'wild-agent-os.task-console';
+
+function loadConsoleState(): SavedConsoleState {
+  try {
+    return JSON.parse(sessionStorage.getItem(TASK_CONSOLE_STORAGE_KEY) || '{}') as SavedConsoleState;
+  } catch {
+    return {};
+  }
+}
 
 const fmt = (d: unknown) =>
   typeof d === 'object' ? JSON.stringify(d, null, 2) : String(d ?? '');
@@ -15,20 +40,21 @@ const fmt = (d: unknown) =>
 const ts = () => new Date().toLocaleTimeString('zh-CN', { hour12: false });
 
 export default function TaskConsole() {
+  const restored = useRef(loadConsoleState());
   const health = useHealth();
-  const [prompt, setPrompt] = useState('');
-  const [userId, setUserId] = useState('');
-  const [sessionId, setSessionId] = useState('');
-  const [taskIri, setTaskIri] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState(restored.current.prompt ?? '');
+  const [userId, setUserId] = useState(restored.current.userId ?? '');
+  const [sessionId, setSessionId] = useState(restored.current.sessionId ?? '');
+  const [taskIri, setTaskIri] = useState<string | null>(restored.current.taskIri ?? null);
   const [running, setRunning] = useState(false);
-  const [status, setStatus] = useState<RealtimeStatus | null>(null);
-  const [details, setDetails] = useState<ExecutionDetails | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [thoughts, setThoughts] = useState<ThoughtItem[]>([]);
-  const [toolCalls, setToolCalls] = useState<ToolCallItem[]>([]);
-  const [llmContent, setLlmContent] = useState('');
-  const [llmReasoning, setLlmReasoning] = useState('');
-  const [livePhase, setLivePhase] = useState<string | null>(null);
+  const [status, setStatus] = useState<RealtimeStatus | null>(restored.current.status ?? null);
+  const [details, setDetails] = useState<ExecutionDetails | null>(restored.current.details ?? null);
+  const [logs, setLogs] = useState<LogEntry[]>(restored.current.logs ?? []);
+  const [thoughts, setThoughts] = useState<ThoughtItem[]>(restored.current.thoughts ?? []);
+  const [toolCalls, setToolCalls] = useState<ToolCallItem[]>(restored.current.toolCalls ?? []);
+  const [llmContent, setLlmContent] = useState(restored.current.llmContent ?? '');
+  const [llmReasoning, setLlmReasoning] = useState(restored.current.llmReasoning ?? '');
+  const [livePhase, setLivePhase] = useState<string | null>(restored.current.livePhase ?? null);
   const stopRef = useRef<(() => void) | null>(null);
   const logId = useRef(0);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -41,9 +67,30 @@ export default function TaskConsole() {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // 轮询状态与明细（任务运行中每 2 秒更新一次）
   useEffect(() => {
-    if (!taskIri || !running) return;
+    try {
+      sessionStorage.setItem(TASK_CONSOLE_STORAGE_KEY, JSON.stringify({
+        prompt,
+        userId,
+        sessionId,
+        taskIri,
+        status,
+        details,
+        logs: logs.slice(-500),
+        thoughts,
+        toolCalls,
+        llmContent,
+        llmReasoning,
+        livePhase,
+      }));
+    } catch {
+      // 浏览器禁用或存储空间不足时，不影响任务执行。
+    }
+  }, [prompt, userId, sessionId, taskIri, status, details, logs, thoughts, toolCalls, llmContent, llmReasoning, livePhase]);
+
+  // 有任务记录时先恢复一次状态与明细，运行期间每 2 秒更新。
+  useEffect(() => {
+    if (!taskIri) return;
     const poll = async () => {
       try {
         const [s, d] = await Promise.all([api.taskStatus(taskIri), api.taskDetails(taskIri)]);
@@ -51,6 +98,7 @@ export default function TaskConsole() {
       } catch { /* 忽略轮询错误 */ }
     };
     poll();
+    if (!running) return;
     const t = setInterval(poll, 2000);
     return () => clearInterval(t);
   }, [taskIri, running]);
@@ -188,7 +236,7 @@ export default function TaskConsole() {
               <RefreshCw className="w-4 h-4" /> 清空
             </button>
           )}
-          {!health.live && (
+          {!health.loading && !health.live && (
             <span className="text-sm text-amber-600 flex items-center gap-1">
               <AlertTriangle className="w-4 h-4" /> 后端未连接，请启动后端后再执行
             </span>
@@ -199,19 +247,21 @@ export default function TaskConsole() {
       {/* 状态卡 */}
       {(status || taskIri) && (
         <div className="grid grid-cols-3 gap-4">
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-4 min-w-0">
             <div className="text-xs text-gray-500 mb-1">任务 IRI</div>
-            <div className="text-xs font-mono text-gray-700 break-all">{taskIri ?? '—'}</div>
+            <div className="text-xs font-mono text-gray-700 break-all max-h-16 overflow-y-auto" title={tooltipText(taskIri)}>{taskIri ?? '—'}</div>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-4 min-w-0">
             <div className="text-xs text-gray-500 mb-1">当前阶段</div>
-            <div className="font-semibold text-blue-600">{livePhase ?? status?.current_phase ?? '—'}</div>
+            <TruncatedText as="div" text={livePhase ?? status?.current_phase} className="font-semibold text-blue-600" />
           </div>
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <div className="text-xs text-gray-500 mb-1">进度</div>
             <div className="flex items-center gap-2">
               {running ? <Clock className="w-4 h-4 text-blue-500 animate-spin" style={{ animationDuration: '2s' }} /> : <CheckCircle2 className="w-4 h-4 text-green-500" />}
-              <span className="font-semibold">{status ? `${status.progress.percentage}%` : running ? '启动中…' : '—'}</span>
+              <span className="font-semibold">
+                {status ? `${status.progress?.percentage ?? 0}%` : running ? '启动中…' : '—'}
+              </span>
             </div>
           </div>
         </div>
@@ -250,16 +300,16 @@ export default function TaskConsole() {
             <div className="flex-1 min-h-24 max-h-60 overflow-y-auto space-y-2">
               {toolCalls.length === 0 && <div className="text-xs text-gray-400 text-center py-6">暂无工具调用</div>}
               {toolCalls.map((t, i) => (
-                <div key={t.call_id ?? i} className="rounded-lg border border-gray-100 bg-gray-50 p-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-semibold text-amber-700">{t.tool_name}</span>
+                <div key={t.call_id ?? i} className="rounded-lg border border-gray-100 bg-gray-50 p-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TruncatedText text={t.tool_name} className="text-xs font-mono font-semibold text-amber-700" />
                     {t.result !== undefined ? (
-                      t.success ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> : <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
-                    ) : <Clock className="w-3.5 h-3.5 text-blue-400 animate-spin" style={{ animationDuration: '2s' }} />}
+                      t.success ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                    ) : <Clock className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" style={{ animationDuration: '2s' }} />}
                   </div>
-                  <div className="text-[11px] font-mono text-gray-500 whitespace-pre-wrap break-all mt-1">{fmt(t.arguments)}</div>
+                  <div className="text-[11px] font-mono text-gray-500 whitespace-pre-wrap break-all mt-1 max-h-40 overflow-y-auto">{fmt(t.arguments)}</div>
                   {t.result !== undefined && (
-                    <div className="text-[11px] font-mono text-gray-700 whitespace-pre-wrap break-all mt-1 max-h-24 overflow-y-auto border-t border-gray-100 pt-1">{String(t.result).slice(0, 800)}</div>
+                    <div className="text-[11px] font-mono text-gray-700 whitespace-pre-wrap break-all mt-1 max-h-40 overflow-y-auto border-t border-gray-100 pt-1">{String(t.result).slice(0, 800)}</div>
                   )}
                 </div>
               ))}
@@ -276,12 +326,12 @@ export default function TaskConsole() {
               </div>
               <div className="space-y-2 max-h-52 overflow-y-auto">
                 {thoughts.map((th, i) => (
-                  <div key={i} className="rounded-lg border border-purple-100 bg-purple-50/40 p-2">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="text-[11px] font-mono text-purple-600">{th.agent_id}</span>
-                      {th.action && <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">{th.action}</span>}
+                  <div key={i} className="rounded-lg border border-purple-100 bg-purple-50/40 p-2 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5 min-w-0">
+                      <TruncatedText text={th.agent_id} className="text-[11px] font-mono text-purple-600 max-w-[40%]" />
+                      {th.action && <TruncatedText text={th.action} className="text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 max-w-[120px] shrink-0" />}
                     </div>
-                    <div className="text-xs text-gray-700 whitespace-pre-wrap break-words">{th.thought}</div>
+                    <div className="text-xs text-gray-700 whitespace-pre-wrap break-words max-h-32 overflow-y-auto">{th.thought}</div>
                   </div>
                 ))}
               </div>
@@ -296,16 +346,16 @@ export default function TaskConsole() {
           <span className="text-xs text-gray-400 font-mono">执行日志</span>
           {running && <span className="flex items-center gap-1 text-xs text-green-400"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />实时流式接收</span>}
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-xs">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-1 font-mono text-xs">
           {logs.length === 0 && (
             <div className="text-gray-600 text-center py-8">等待任务执行…</div>
           )}
           <AnimatePresence initial={false}>
             {logs.map(log => (
-              <motion.div key={log.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="flex gap-3">
+              <motion.div key={log.id} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="flex gap-3 min-w-0">
                 <span className="text-gray-500 shrink-0">{log.time}</span>
-                <span className={`shrink-0 font-semibold ${eventColor(log.event)}`}>[{log.event}]</span>
-                <span className="text-gray-300 whitespace-pre-wrap break-all">{fmt(log.data)}</span>
+                <span className={`shrink-0 font-semibold max-w-[30%] truncate ${eventColor(log.event)}`} title={tooltipText(log.event)}>[{log.event}]</span>
+                <span className="text-gray-300 whitespace-pre-wrap break-all min-w-0 flex-1 max-h-40 overflow-y-auto">{fmt(log.data)}</span>
               </motion.div>
             ))}
           </AnimatePresence>

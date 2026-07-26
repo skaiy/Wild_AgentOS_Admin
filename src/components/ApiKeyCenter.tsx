@@ -3,6 +3,7 @@ import { Plus, Trash2, AlertTriangle, CheckCircle2, Copy, KeyRound, X, Ban, Acti
 import { api, type ApiClientView } from '../api/client';
 import { useApiClients, useAgents, useApiAudit } from '../api/hooks';
 import LiveBadge from './LiveBadge';
+import TruncatedText from './TruncatedText';
 
 /** 相对时间简化展示。 */
 function fromNow(iso: string | null): string {
@@ -83,8 +84,27 @@ export default function ApiKeyCenter() {
     run(() => api.deleteApiClient(c.id));
   };
 
-  const copy = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  const copy = async (text: string) => {
+    setErr(null);
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copiedSuccessfully = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!copiedSuccessfully) throw new Error('浏览器拒绝了复制操作');
+      }
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch (error) {
+      setErr(`复制失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   return (
@@ -94,7 +114,7 @@ export default function ApiKeyCenter() {
           <h2 className="text-lg font-bold text-gray-900">API 密钥治理</h2>
           <LiveBadge live={clients.live} />
         </div>
-        <button onClick={() => setShowCreate(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2">
+        <button onClick={() => { setErr(null); setShowCreate(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2">
           <Plus className="w-4 h-4" /> 新建调用方
         </button>
       </div>
@@ -105,8 +125,9 @@ export default function ApiKeyCenter() {
       </div>
 
       {err && (
-        <div className="bg-red-50 text-red-700 text-sm p-3 rounded-lg border border-red-200 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4" /> {err}
+        <div className="bg-red-50 text-red-700 text-sm p-3 rounded-lg border border-red-200 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <TruncatedText as="div" text={err} lines={3} className="min-w-0" />
         </div>
       )}
 
@@ -119,15 +140,15 @@ export default function ApiKeyCenter() {
       <div className="space-y-4">
         {list.map((c) => (
           <div key={c.id} className="border border-gray-200 rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-900">{c.name}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${c.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
+            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-gray-50 border-b border-gray-200">
+              <div className="flex min-w-0 items-center gap-2">
+                <TruncatedText text={c.name} className="text-sm font-semibold text-gray-900 max-w-[16rem]" />
+                <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${c.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
                   {c.status === 'active' ? '启用' : '停用'}
                 </span>
-                {c.description && <span className="text-xs text-gray-400">{c.description}</span>}
+                {c.description && <TruncatedText text={c.description} className="text-xs text-gray-400 min-w-0" />}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 <button onClick={() => toggleStatus(c)} disabled={busy} className="text-xs text-gray-600 hover:text-gray-900 flex items-center gap-1">
                   <Ban className="w-3.5 h-3.5" /> {c.status === 'active' ? '停用' : '启用'}
                 </button>
@@ -146,7 +167,7 @@ export default function ApiKeyCenter() {
                   ? <span className="text-gray-400">未授权任何 Agent</span>
                   : <div className="flex flex-wrap gap-1">
                       {c.granted_agent_ids.map((id) => (
-                        <span key={id} className="bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5">{agentName.get(id) || id}</span>
+                        <TruncatedText key={id} text={agentName.get(id) || id} className="bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5 max-w-[12rem]" />
                       ))}
                     </div>}
               </div>
@@ -177,9 +198,13 @@ export default function ApiKeyCenter() {
                 )}
                 {c.keys.map((k) => (
                   <tr key={k.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2 text-gray-900">{k.name || '—'}</td>
-                    <td className="px-4 py-2 font-mono text-xs">{k.key_prefix}***</td>
-                    <td className="px-4 py-2 text-xs">{fromNow(k.last_used_at)}</td>
+                    <td className="px-4 py-2 text-gray-900">
+                      <TruncatedText as="div" text={k.name} className="max-w-[16rem]" />
+                    </td>
+                    <td className="px-4 py-2 font-mono text-xs">
+                      <TruncatedText as="div" text={k.key_prefix ? `${k.key_prefix}***` : ''} className="max-w-[10rem]" />
+                    </td>
+                    <td className="px-4 py-2 text-xs whitespace-nowrap">{fromNow(k.last_used_at)}</td>
                     <td className="px-4 py-2">
                       {k.status === 'active'
                         ? <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><CheckCircle2 className="w-3 h-3" /> 正常</span>
@@ -202,8 +227,8 @@ export default function ApiKeyCenter() {
       {/* 调用审计 */}
       <div className="border border-gray-200 rounded-lg overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-900">调用审计（最近 100 条）</h3>
-          <select value={auditFilter} onChange={(e) => setAuditFilter(e.target.value)} className="text-xs border border-gray-300 rounded px-2 py-1">
+          <h3 className="text-sm font-semibold text-gray-900 shrink-0">调用审计（最近 100 条）</h3>
+          <select value={auditFilter} onChange={(e) => setAuditFilter(e.target.value)} className="text-xs border border-gray-300 rounded px-2 py-1 max-w-[16rem]">
             <option value="">全部调用方</option>
             {list.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
@@ -226,14 +251,21 @@ export default function ApiKeyCenter() {
               )}
               {(audit.data?.records || []).map((r, i) => (
                 <tr key={i} className="hover:bg-gray-50">
-                  <td className="px-4 py-1.5">{fromNow(r.ts)}</td>
-                  <td className="px-4 py-1.5">{clientName.get(r.client_id) || r.key_prefix || '—'}</td>
-                  <td className="px-4 py-1.5">{agentName.get(r.agent_id) || r.agent_id}</td>
-                  <td className="px-4 py-1.5">{r.endpoint}</td>
+                  <td className="px-4 py-1.5 whitespace-nowrap">{fromNow(r.ts)}</td>
                   <td className="px-4 py-1.5">
-                    <span className={r.status < 400 ? 'text-green-600' : 'text-red-600'}>{r.status} {r.result}</span>
+                    <TruncatedText as="div" text={clientName.get(r.client_id) || r.key_prefix} className="max-w-[12rem]" />
                   </td>
-                  <td className="px-4 py-1.5">{r.latency_ms != null ? `${r.latency_ms}ms` : '—'}</td>
+                  <td className="px-4 py-1.5">
+                    <TruncatedText as="div" text={agentName.get(r.agent_id) || r.agent_id} className="max-w-[12rem]" />
+                  </td>
+                  <td className="px-4 py-1.5">
+                    <TruncatedText as="div" text={r.endpoint} className="max-w-[16rem]" />
+                  </td>
+                  <td className="px-4 py-1.5">
+                    <TruncatedText as="div" text={`${r.status} ${r.result}`.trim()}
+                      className={`max-w-[14rem] ${r.status < 400 ? 'text-green-600' : 'text-red-600'}`} />
+                  </td>
+                  <td className="px-4 py-1.5 whitespace-nowrap">{r.latency_ms != null ? `${r.latency_ms}ms` : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -250,6 +282,12 @@ export default function ApiKeyCenter() {
               <button onClick={() => setShowCreate(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-5 space-y-4 text-sm">
+              {err && (
+                <div role="alert" className="bg-red-50 text-red-700 p-3 rounded-lg border border-red-200 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <TruncatedText as="div" text={err} lines={3} className="min-w-0" />
+                </div>
+              )}
               <div>
                 <label className="block text-gray-600 mb-1">名称 *</label>
                 <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -265,10 +303,10 @@ export default function ApiKeyCenter() {
                 <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg p-2 space-y-1">
                   {(agents.data?.agents || []).filter((a) => a.id).map((a) => (
                     <label key={a.id} className="flex items-center gap-2 text-gray-700">
-                      <input type="checkbox" checked={form.scope.includes(a.id!)}
+                      <input type="checkbox" className="shrink-0" checked={form.scope.includes(a.id!)}
                         onChange={(e) => setForm({ ...form, scope: e.target.checked ? [...form.scope, a.id!] : form.scope.filter((x) => x !== a.id) })} />
-                      <span>{a.name}</span>
-                      {a.published ? <span className="text-[10px] text-green-600">已发布</span> : <span className="text-[10px] text-gray-400">未发布</span>}
+                      <TruncatedText text={a.name} className="min-w-0" />
+                      {a.published ? <span className="text-[10px] text-green-600 shrink-0">已发布</span> : <span className="text-[10px] text-gray-400 shrink-0">未发布</span>}
                     </label>
                   ))}
                   {(agents.data?.agents || []).length === 0 && <span className="text-gray-400 text-xs">暂无 Agent</span>}
@@ -298,9 +336,13 @@ export default function ApiKeyCenter() {
       {issueFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200">
-              <h3 className="font-bold text-gray-900">为「{issueFor.name}」签发密钥</h3>
-              <button onClick={() => setIssueFor(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-gray-200">
+              <h3 className="flex min-w-0 items-center font-bold text-gray-900">
+                <span className="shrink-0">为「</span>
+                <TruncatedText text={issueFor.name} className="min-w-0" />
+                <span className="shrink-0">」签发密钥</span>
+              </h3>
+              <button onClick={() => setIssueFor(null)} className="text-gray-400 hover:text-gray-600 shrink-0"><X className="w-5 h-5" /></button>
             </div>
             <div className="p-5 space-y-3 text-sm">
               <label className="block text-gray-600 mb-1">密钥名称</label>

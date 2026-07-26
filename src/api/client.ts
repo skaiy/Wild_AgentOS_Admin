@@ -15,8 +15,12 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const base = getBackendBase();
   const res = await fetch(`${base}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
     ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Identity': adminIdentityHeader(),
+      ...(init?.headers || {}),
+    },
   });
   const text = await res.text();
   const body = text ? safeJson(text) : null;
@@ -143,8 +147,8 @@ export interface GuardAuditResponse { total: number; entries: GuardAuditEntry[] 
 export interface CreateTaskResponse { task_iri: string; status: string }
 export interface RealtimeStatus {
   task_iri: string; status: string; current_phase: string;
-  current_agent: { id: string; role: string; status: string; turn: number };
-  progress: { completed_steps: number; total_steps: number; percentage: number };
+  current_agent?: { id: string; role: string; status: string; turn: number };
+  progress?: { completed_steps: number; total_steps: number; percentage: number };
 }
 export interface ExecutionDetails {
   task_iri: string; status: string; current_phase: string;
@@ -183,6 +187,11 @@ export interface ModelResourceInfo {
   supports_tools?: boolean; supports_reasoning?: boolean; supports_vision?: boolean;
 }
 export interface ModelsConfig { providers: ProviderInfo[]; resources: ModelResourceInfo[] }
+export interface AdminPolicyConfig {
+  iam: { access_token_hours: number; refresh_token_days: number; mfa_for_sensitive_actions: boolean };
+  security: { prompt_injection_protection: boolean; hallucination_threshold: number; max_tool_calls: number; pii_redaction: boolean };
+  storage: { task_retention_days: number; session_retention_hours: number; audit_retention_days: number };
+}
 export interface RuntimeConfigInfo {
   version: string;
   gateway: RuntimeGatewayInfo;
@@ -191,6 +200,7 @@ export interface RuntimeConfigInfo {
   api: { grpc_addr: string; http_addr: string; metrics_port: number };
   memory: { l1_max_messages: number; l2_max_node_size: number };
   agents: { max_iterations: number; max_parallel_agents: number };
+  admin_policies?: AdminPolicyConfig;
 }
 /** PUT /api/v1/config 的 embedding 补丁（部分字段）。 */
 export interface EmbeddingConfigPatch {
@@ -501,6 +511,7 @@ export const api = {
     gateway?: Partial<RuntimeGatewayInfo & { api_key: string }>;
     embedding?: EmbeddingConfigPatch;
     models?: ModelsConfigPatch;
+    admin_policies?: Partial<AdminPolicyConfig>;
   }) =>
     request<ConfigUpdateResponse>('/api/v1/config', {
       method: 'PUT', body: JSON.stringify(patch),
@@ -622,9 +633,9 @@ export const api = {
       method: 'POST', body: JSON.stringify({ name, description, endpoint, protocol }),
     }),
   // ── 智能体 RAG 问答（基于挂载知识包检索 + LLM 网关）──
-  agentChat: (id: string, message: string) =>
+  agentChat: (id: string, message: string, images: string[] = []) =>
     request<AgentChatResponse>(`/api/v1/agents/${encodeURIComponent(id)}/chat`, {
-      method: 'POST', body: JSON.stringify({ message }),
+      method: 'POST', body: JSON.stringify({ message, images }),
     }),
   // ── G6' Prompt 版本管理 ──
   listPrompts: () => request<PromptVersionsResponse>('/api/v1/prompts'),

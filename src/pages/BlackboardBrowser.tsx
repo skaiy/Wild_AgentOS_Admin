@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Database, RefreshCw, X, Layers, Filter } from 'lucide-react';
 import { api, type BlackboardTask, type BlackboardNode } from '../api/client';
+import TruncatedText from '../components/TruncatedText';
 
 /** 平台运维态：L2 黑板浏览器（跨租户，按 task_iri 定位）。 */
 const STATUS_STYLE: Record<string, string> = {
@@ -50,11 +51,11 @@ export default function BlackboardBrowser() {
   return (
     <div className="space-y-6 relative">
       <div className="flex items-center gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">L2 黑板浏览器 (Blackboard)</h1>
           <p className="text-sm text-gray-500 mt-1">平台运维态 · 跨租户共享记忆，按任务 (task_iri) 定位</p>
         </div>
-        <button onClick={loadTasks} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200">
+        <button onClick={loadTasks} className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-sm font-medium hover:bg-gray-200 shrink-0">
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> 刷新
         </button>
       </div>
@@ -66,6 +67,7 @@ export default function BlackboardBrowser() {
           <span className="text-xs text-gray-500 ml-1">{tasks ? `共 ${tasks.length} 个任务` : ''}</span>
         </div>
         {error && <div className="text-sm text-red-600 bg-red-50 px-6 py-3">{error}</div>}
+        <div className="overflow-x-auto">
         <table className="w-full text-left text-sm text-gray-600">
           <thead className="bg-gray-50 text-gray-700 font-medium border-b border-gray-200">
             <tr>
@@ -84,9 +86,9 @@ export default function BlackboardBrowser() {
             )}
             {tasks?.map(t => (
               <tr key={t.task_iri} className="hover:bg-gray-50">
-                <td className="px-6 py-4 font-mono text-xs text-gray-900">{t.task_iri}</td>
+                <td className="px-6 py-4 font-mono text-xs text-gray-900 max-w-[28rem]"><TruncatedText as="div" text={t.task_iri} /></td>
                 <td className="px-6 py-4">
-                  <span className={`px-2 py-1 rounded-md text-xs ${STATUS_STYLE[t.status] ?? STATUS_STYLE.unknown}`}>{t.status}</span>
+                  <span className={`shrink-0 px-2 py-1 rounded-md text-xs ${STATUS_STYLE[t.status] ?? STATUS_STYLE.unknown}`}>{t.status}</span>
                 </td>
                 <td className="px-6 py-4">{t.node_count}</td>
                 <td className="px-6 py-4">{t.children}</td>
@@ -97,6 +99,7 @@ export default function BlackboardBrowser() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       <AnimatePresence>
@@ -107,12 +110,12 @@ export default function BlackboardBrowser() {
             <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
               className="relative w-full max-w-3xl bg-white h-full shadow-2xl flex flex-col">
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Database className="w-5 h-5 text-blue-600" /> 任务节点</h2>
-                  <p className="text-xs text-gray-500 mt-1 font-mono">{selected}</p>
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3 bg-gray-50">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Database className="w-5 h-5 text-blue-600 shrink-0" /> 任务节点</h2>
+                  <p className="text-xs text-gray-500 mt-1 font-mono"><TruncatedText as="div" text={selected} /></p>
                 </div>
-                <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 p-2 rounded-md hover:bg-gray-200"><X className="w-5 h-5" /></button>
+                <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 p-2 rounded-md hover:bg-gray-200 shrink-0"><X className="w-5 h-5" /></button>
               </div>
               <div className="px-6 py-3 border-b border-gray-100 flex flex-wrap items-center gap-2 bg-white">
                 <Filter className="w-4 h-4 text-gray-400" />
@@ -134,9 +137,9 @@ export default function BlackboardBrowser() {
                 {nodes?.map((n, i) => (
                   <div key={i} className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className="font-mono text-xs text-gray-900 truncate flex-1" title={n.iri}>{n.iri}</span>
-                      {n.node_type && <span className="px-2 py-0.5 rounded-md text-xs bg-indigo-50 text-indigo-700">{n.node_type}</span>}
-                      {n.created_by && <span className="text-xs text-gray-400">by {n.created_by}</span>}
+                      <span className="font-mono text-xs text-gray-900 min-w-0 flex-1"><TruncatedText text={n.iri} /></span>
+                      {n.node_type && <span className="px-2 py-0.5 rounded-md text-xs bg-indigo-50 text-indigo-700 shrink-0">{n.node_type}</span>}
+                      {n.created_by && <span className="text-xs text-gray-400 shrink-0">by <TruncatedText text={n.created_by} className="max-w-[8rem]" /></span>}
                     </div>
                     <pre className="text-xs font-mono whitespace-pre-wrap bg-gray-50 rounded-md p-3 border border-gray-100 max-h-64 overflow-auto">{prettyJson(n.json_ld)}</pre>
                   </div>

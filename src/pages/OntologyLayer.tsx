@@ -12,6 +12,7 @@ import type {
 } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import OntologyGraph from '../components/OntologyGraph';
+import { TruncatedText, tooltipText } from '../components/TruncatedText';
 
 /** Tailwind 色名 → 十六进制，用于动态强调色（避免 Tailwind 动态类被裁剪）。 */
 const COLOR_HEX: Record<string, string> = {
@@ -73,7 +74,7 @@ export default function OntologyLayer() {
   const objLabel = (id: string) => objById.get(id)?.label ?? id;
 
   const tabs: { id: Tab; label: string; icon: any; count: number }[] = [
-    { id: 'graph', label: '对象模型图', icon: Network, count: objectTypes.length },
+    { id: 'graph', label: '3D 对象模型图', icon: Network, count: objectTypes.length },
     { id: 'objects', label: '对象类型', icon: Boxes, count: objectTypes.length },
     { id: 'links', label: '链接类型', icon: ArrowRight, count: linkTypes.length },
     { id: 'actions', label: '动作类型', icon: Zap, count: actionTypes.length },
@@ -107,7 +108,8 @@ export default function OntologyLayer() {
         </div>
         {packErr && (
           <div className="mx-4 mt-3 flex items-start gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /><span>{packErr}</span>
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span className="min-w-0 max-h-24 overflow-y-auto whitespace-pre-wrap break-all">{packErr}</span>
           </div>
         )}
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -127,18 +129,18 @@ export default function OntologyLayer() {
                   <DynIcon name={p.icon} className="w-6 h-6" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-bold text-gray-900 truncate">{p.name}</h3>
-                    <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">v{p.version}</span>
-                    {p.builtin && <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded">内置</span>}
-                    <div className="ml-auto flex items-center gap-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TruncatedText as="div" text={p.name} className="font-bold text-gray-900" />
+                    <TruncatedText text={`v${p.version}`} className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded max-w-[90px] shrink-0" />
+                    {p.builtin && <span className="text-[10px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded shrink-0">内置</span>}
+                    <div className="ml-auto flex items-center gap-1 shrink-0">
                       <button onClick={() => { setPackErr(null); setEditingPack(p); }} title="编辑"
                         className="p-1 rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700"><Pencil className="w-3.5 h-3.5" /></button>
                       <button onClick={() => handleDeletePack(p)} title="删除"
                         className="p-1 rounded text-gray-400 hover:bg-rose-50 hover:text-rose-600"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{p.description}</p>
+                  <TruncatedText as="p" text={p.description} lines={2} fallback="" className="text-xs text-gray-500 mt-1" />
                   <div className="flex flex-wrap gap-2 mt-3 text-xs">
                     <span className="bg-sky-50 text-sky-700 px-2 py-0.5 rounded">分类 {nCat}</span>
                     <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded">图库 {nGraph}</span>
@@ -152,15 +154,15 @@ export default function OntologyLayer() {
                   </div>
                   {(nCat + nGraph + nVec) > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {(p.category_ids ?? []).map((id) => <span key={`c${id}`} className="text-[10px] bg-sky-50 text-sky-600 px-1.5 py-0.5 rounded">{catName(id)}</span>)}
-                      {(p.graph_kb_ids ?? []).map((id) => <span key={`g${id}`} className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded">📊 {baseName(id)}</span>)}
-                      {(p.vector_kb_ids ?? []).map((id) => <span key={`v${id}`} className="text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded">🔢 {baseName(id)}</span>)}
+                      {(p.category_ids ?? []).map((id) => <TruncatedText key={`c${id}`} text={catName(id)} className="text-[10px] bg-sky-50 text-sky-600 px-1.5 py-0.5 rounded max-w-[160px]" />)}
+                      {(p.graph_kb_ids ?? []).map((id) => <TruncatedText key={`g${id}`} text={`📊 ${baseName(id)}`} className="text-[10px] bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded max-w-[160px]" />)}
+                      {(p.vector_kb_ids ?? []).map((id) => <TruncatedText key={`v${id}`} text={`🔢 ${baseName(id)}`} className="text-[10px] bg-violet-50 text-violet-600 px-1.5 py-0.5 rounded max-w-[160px]" />)}
                     </div>
                   )}
                   {(p.named_graph || p.vector_namespace) && (
                     <div className="mt-3 space-y-1 text-[11px] font-mono text-gray-400">
-                      {p.named_graph && <div className="truncate" title={p.named_graph}>📊 {p.named_graph}</div>}
-                      {p.vector_namespace && <div className="truncate" title={p.vector_namespace}>🔢 {p.vector_namespace}</div>}
+                      {p.named_graph && <TruncatedText as="div" text={`📊 ${p.named_graph}`} />}
+                      {p.vector_namespace && <TruncatedText as="div" text={`🔢 ${p.vector_namespace}`} />}
                     </div>
                   )}
                 </div>
@@ -197,7 +199,7 @@ export default function OntologyLayer() {
             <div className="text-sm text-gray-400 text-center py-10">后端离线，无法加载本体定义</div>
           )}
 
-          {/* 对象模型力导向图 */}
+          {/* 3D 对象模型力导向图 */}
           {ont.live && tab === 'graph' && (
             <div className="border border-gray-100 rounded-xl overflow-hidden bg-gray-50/40">
               <OntologyGraph objectTypes={objectTypes} linkTypes={linkTypes} height={580} />
@@ -212,18 +214,18 @@ export default function OntologyLayer() {
           {ont.live && tab === 'links' && (
             <div className="divide-y divide-gray-100 border border-gray-100 rounded-xl overflow-hidden">
               {linkTypes.map((l) => (
-                <div key={l.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
-                  <span className="px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs font-medium">{objLabel(l.source)}</span>
-                  <div className="flex flex-col items-center min-w-[110px]">
-                    <span className="text-xs font-medium text-purple-600">{l.label}</span>
+                <div key={l.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 min-w-0">
+                  <TruncatedText text={objLabel(l.source)} className="px-2 py-1 rounded-md bg-blue-50 text-blue-700 text-xs font-medium max-w-[180px] shrink-0" />
+                  <div className="flex flex-col items-center w-[110px] shrink-0">
+                    <TruncatedText text={l.label} className="text-xs font-medium text-purple-600 max-w-full" />
                     <div className="flex items-center w-full">
                       <div className="h-px bg-gray-300 flex-1" />
                       <ArrowRight className="w-3.5 h-3.5 text-gray-400" />
                     </div>
-                    <span className="text-[10px] text-gray-400">{CARD_LABEL[l.cardinality] ?? l.cardinality}</span>
+                    <TruncatedText text={CARD_LABEL[l.cardinality] ?? l.cardinality} className="text-[10px] text-gray-400 max-w-full" />
                   </div>
-                  <span className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-xs font-medium">{objLabel(l.target)}</span>
-                  <span className="text-xs text-gray-400 ml-auto truncate max-w-[40%]" title={l.description}>{l.description}</span>
+                  <TruncatedText text={objLabel(l.target)} className="px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-xs font-medium max-w-[180px] shrink-0" />
+                  <TruncatedText text={l.description} fallback="" className="text-xs text-gray-400 ml-auto min-w-0 max-w-[40%]" />
                 </div>
               ))}
             </div>
@@ -233,39 +235,46 @@ export default function OntologyLayer() {
           {ont.live && tab === 'actions' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {actionTypes.map((a) => (
-                <div key={a.id} className="border border-gray-200 rounded-xl p-4">
+                <div key={a.id} className="border border-gray-200 rounded-xl p-4 min-w-0">
                   <div className="flex items-start gap-3">
                     <div className="p-2 rounded-lg bg-amber-50 text-amber-600 shrink-0">
                       <DynIcon name={a.icon} className="w-5 h-5" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-bold text-gray-900">{a.label}</h3>
-                        <span className="text-[11px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">作用于 {objLabel(a.applies_to)}</span>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <TruncatedText as="div" text={a.label} className="font-bold text-gray-900" />
+                        <TruncatedText text={`作用于 ${objLabel(a.applies_to)}`} className="text-[11px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded max-w-[180px] shrink-0" />
                       </div>
-                      <p className="text-xs text-gray-500 mt-1">{a.description}</p>
+                      <TruncatedText as="p" text={a.description} lines={2} fallback="" className="text-xs text-gray-500 mt-1" />
                     </div>
                   </div>
-                  <div className="mt-3 space-y-2 text-xs">
-                    <div>
+                  <div className="mt-3 space-y-2 text-xs min-w-0">
+                    <div className="min-w-0">
                       <span className="text-gray-400">参数：</span>
-                      <span className="inline-flex flex-wrap gap-1 align-middle">
+                      <span className="inline-flex flex-wrap gap-1 align-middle max-w-full">
                         {a.parameters.map((p) => (
-                          <span key={p.name} className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono">
+                          <span
+                            key={p.name}
+                            className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-mono max-w-[220px] truncate"
+                            title={tooltipText(`${p.name}${p.required ? '*' : ''}:${PT_LABEL[p.prop_type] ?? p.prop_type}`)}
+                          >
                             {p.name}{p.required && <span className="text-rose-500">*</span>}:{PT_LABEL[p.prop_type] ?? p.prop_type}
                           </span>
                         ))}
                       </span>
                     </div>
                     {a.preconditions.length > 0 && (
-                      <div><span className="text-gray-400">前置条件：</span><span className="text-gray-600">{a.preconditions.join('；')}</span></div>
+                      <div className="min-w-0">
+                        <span className="text-gray-400">前置条件：</span>
+                        <TruncatedText text={a.preconditions.join('；')} lines={2} className="text-gray-600" />
+                      </div>
                     )}
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1 min-w-0">
                       <span className="text-gray-400">写回效果 (Side Effects)：</span>
                       {a.side_effects.map((s, i) => (
-                        <span key={i} className="flex items-center gap-1.5">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${SE_STYLE[s.kind] ?? 'bg-gray-100 text-gray-600'}`}>{SE_LABEL[s.kind] ?? s.kind}</span>
-                          <span className="text-gray-600">{s.description}</span>
+                        <span key={i} className="flex items-start gap-1.5 min-w-0">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${SE_STYLE[s.kind] ?? 'bg-gray-100 text-gray-600'}`}>{SE_LABEL[s.kind] ?? s.kind}</span>
+                          <TruncatedText text={s.description} lines={2} fallback="" className="text-gray-600 min-w-0" />
                         </span>
                       ))}
                     </div>
@@ -287,15 +296,15 @@ export default function OntologyLayer() {
           {ont.live && tab === 'functions' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {functions.map((f) => (
-                <div key={f.id} className="border border-gray-200 rounded-xl p-4">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-violet-50 text-violet-600"><Sigma className="w-4 h-4" /></div>
-                    <h3 className="font-bold text-gray-900">{f.label}</h3>
-                    <span className="text-[11px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">作用于 {objLabel(f.applies_to)}</span>
-                    <span className="ml-auto text-[11px] text-gray-400">→ {PT_LABEL[f.returns] ?? f.returns}</span>
+                <div key={f.id} className="border border-gray-200 rounded-xl p-4 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="p-1.5 rounded-lg bg-violet-50 text-violet-600 shrink-0"><Sigma className="w-4 h-4" /></div>
+                    <TruncatedText as="div" text={f.label} className="font-bold text-gray-900" />
+                    <TruncatedText text={`作用于 ${objLabel(f.applies_to)}`} className="text-[11px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded max-w-[160px] shrink-0" />
+                    <TruncatedText text={`→ ${PT_LABEL[f.returns] ?? f.returns}`} className="ml-auto text-[11px] text-gray-400 max-w-[120px] shrink-0" />
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">{f.description}</p>
-                  <pre className="mt-2 bg-gray-900 text-emerald-300 text-[11px] font-mono rounded-lg px-3 py-2 overflow-x-auto whitespace-pre-wrap">{f.expression}</pre>
+                  <TruncatedText as="p" text={f.description} lines={2} fallback="" className="text-xs text-gray-500 mt-2" />
+                  <pre className="mt-2 bg-gray-900 text-emerald-300 text-[11px] font-mono rounded-lg px-3 py-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-all">{f.expression}</pre>
                 </div>
               ))}
             </div>
@@ -347,26 +356,29 @@ function ObjectsView({ objectTypes, activeObj, setActiveObj }: {
                 <DynIcon name={o.icon} className="w-5 h-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-gray-900">{o.label}</h3>
-                  <span className="text-[11px] font-mono text-gray-400">{o.id}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <TruncatedText as="div" text={o.label} className="font-bold text-gray-900" />
+                  <TruncatedText text={o.id} className="text-[11px] font-mono text-gray-400 max-w-[120px] shrink-0" />
                 </div>
-                <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{o.description}</p>
-                <div className="flex items-center gap-2 mt-1.5 text-[11px] text-gray-500">
-                  <span className="flex items-center gap-1"><KeyRound className="w-3 h-3 text-amber-500" />{o.primary_key}</span>
+                <TruncatedText as="p" text={o.description} fallback="" className="text-xs text-gray-500 mt-0.5" />
+                <div className="flex items-center gap-2 mt-1.5 text-[11px] text-gray-500 min-w-0">
+                  <span className="flex items-center gap-1 min-w-0 max-w-[60%]">
+                    <KeyRound className="w-3 h-3 text-amber-500 shrink-0" />
+                    <TruncatedText text={o.primary_key} />
+                  </span>
                   <span className="text-gray-300">·</span>
-                  <span>{o.properties.length} 属性</span>
+                  <span className="shrink-0">{o.properties.length} 属性</span>
                 </div>
               </div>
             </button>
             {open && (
               <div className="border-t border-gray-100 divide-y divide-gray-50 bg-gray-50/50">
                 {o.properties.map((p) => (
-                  <div key={p.name} className="flex items-center gap-2 px-3 py-2 text-xs">
-                    <span className="font-medium text-gray-700">{p.label}</span>
-                    {p.required && <span className="text-rose-500">*</span>}
-                    <span className="font-mono text-gray-400">{p.name}</span>
-                    <span className="ml-auto bg-white border border-gray-200 text-gray-500 px-1.5 py-0.5 rounded">{PT_LABEL[p.prop_type] ?? p.prop_type}</span>
+                  <div key={p.name} className="flex items-center gap-2 px-3 py-2 text-xs min-w-0">
+                    <TruncatedText text={p.label} className="font-medium text-gray-700 max-w-[45%]" />
+                    {p.required && <span className="text-rose-500 shrink-0">*</span>}
+                    <TruncatedText text={p.name} className="font-mono text-gray-400 min-w-0" />
+                    <span className="ml-auto bg-white border border-gray-200 text-gray-500 px-1.5 py-0.5 rounded shrink-0">{PT_LABEL[p.prop_type] ?? p.prop_type}</span>
                   </div>
                 ))}
               </div>
@@ -406,6 +418,17 @@ function ActionRunner({ action, objLabel, onClose }: {
   };
 
   const run = async (dry_run: boolean) => {
+    const missing = action.parameters
+      .filter((parameter) => parameter.required && !String(values[parameter.name] ?? '').trim())
+      .map((parameter) => parameter.label);
+    if (missing.length > 0) {
+      setError(`请填写必填参数：${missing.join('、')}`);
+      return;
+    }
+    if (action.id === 'GenerateRepairOrder' && !target.trim()) {
+      setError('请填写目标故障码主键');
+      return;
+    }
     setBusy(true); setError(null); setResult(null);
     try {
       const res = await api.invokeAction(action.id, {
@@ -420,19 +443,19 @@ function ActionRunner({ action, objLabel, onClose }: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-200">
-          <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600"><Zap className="w-4 h-4" /></div>
-          <h3 className="font-bold text-gray-900">{action.label}</h3>
-          <span className="text-[11px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">作用于 {objLabel(action.applies_to)}</span>
-          <button onClick={onClose} className="ml-auto p-1 rounded-md text-gray-400 hover:bg-gray-100"><X className="w-4 h-4" /></button>
+        <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-200 min-w-0">
+          <div className="p-1.5 rounded-lg bg-amber-50 text-amber-600 shrink-0"><Zap className="w-4 h-4" /></div>
+          <TruncatedText as="div" text={action.label} className="font-bold text-gray-900" />
+          <TruncatedText text={`作用于 ${objLabel(action.applies_to)}`} className="text-[11px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded max-w-[160px] shrink-0" />
+          <button onClick={onClose} className="ml-auto p-1 rounded-md text-gray-400 hover:bg-gray-100 shrink-0"><X className="w-4 h-4" /></button>
         </div>
 
         <div className="p-5 space-y-3">
-          <p className="text-xs text-gray-500">{action.description}</p>
+          <p className="text-xs text-gray-500 whitespace-pre-wrap break-all max-h-32 overflow-y-auto">{action.description}</p>
 
           {/* 目标对象主键（applies_to 实例） */}
           <label className="block">
-            <span className="text-xs font-medium text-gray-700">目标对象（{objLabel(action.applies_to)} 主键）</span>
+            <TruncatedText as="span" text={`目标对象（${objLabel(action.applies_to)} 主键）`} className="text-xs font-medium text-gray-700 block" />
             <input
               value={target} onChange={(e) => setTarget(e.target.value)}
               placeholder={`如 ${action.applies_to} 的主键值`}
@@ -442,10 +465,14 @@ function ActionRunner({ action, objLabel, onClose }: {
 
           {/* 动态参数表单 */}
           {action.parameters.map((p) => (
-            <label key={p.name} className="block">
-              <span className="text-xs font-medium text-gray-700">
-                {p.label} {p.required && <span className="text-rose-500">*</span>}
-                <span className="ml-1 font-mono text-gray-400">{p.name}:{PT_LABEL[p.prop_type] ?? p.prop_type}</span>
+            <label key={p.name} className="block min-w-0">
+              <span
+                className="flex items-center gap-1 text-xs font-medium text-gray-700 min-w-0"
+                title={tooltipText(`${p.label}${p.required ? ' *' : ''} ${p.name}:${PT_LABEL[p.prop_type] ?? p.prop_type}`)}
+              >
+                <span className="truncate max-w-[45%]">{p.label}</span>
+                {p.required && <span className="text-rose-500 shrink-0">*</span>}
+                <span className="font-mono text-gray-400 truncate min-w-0">{p.name}:{PT_LABEL[p.prop_type] ?? p.prop_type}</span>
               </span>
               {p.prop_type === 'boolean' ? (
                 <select value={values[p.name] ?? ''} onChange={(e) => setVal(p.name, e.target.value)}
@@ -465,25 +492,28 @@ function ActionRunner({ action, objLabel, onClose }: {
 
           {error && (
             <div className="flex items-start gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /><span>{error}</span>
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span className="min-w-0 max-h-24 overflow-y-auto whitespace-pre-wrap break-all">{error}</span>
             </div>
           )}
 
           {result && (
-            <div className="space-y-2">
-              <div className={`flex items-center gap-2 text-sm font-medium ${result.status === 'ok' ? 'text-emerald-700' : 'text-blue-700'}`}>
-                <CheckCircle2 className="w-4 h-4" />
-                {result.status === 'ok'
-                  ? `已写回命名图 ${result.graph}（${result.applied ?? 0} 条语句）`
-                  : `预览（dry_run）· 不写库 · ${result.sparql?.length ?? 0} 条语句`}
+            <div className="space-y-2 min-w-0">
+              <div className={`flex items-start gap-2 text-sm font-medium min-w-0 ${result.status === 'ok' ? 'text-emerald-700' : 'text-blue-700'}`}>
+                <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                <span className="min-w-0 break-all">
+                  {result.status === 'ok'
+                    ? `已写回命名图 ${result.graph}（${result.applied ?? 0} 条语句）`
+                    : `预览（dry_run）· 不写库 · ${result.sparql?.length ?? 0} 条语句`}
+                </span>
               </div>
               {result.status === 'dry_run' && result.sparql && result.sparql.length > 0 && (
-                <pre className="bg-gray-900 text-emerald-300 text-[11px] font-mono rounded-lg px-3 py-2 overflow-x-auto whitespace-pre-wrap">
+                <pre className="bg-gray-900 text-emerald-300 text-[11px] font-mono rounded-lg px-3 py-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-all">
                   {result.sparql.join('\n\n')}
                 </pre>
               )}
               {result.result && Object.keys(result.result).length > 0 && (
-                <pre className="bg-gray-50 border border-gray-200 text-gray-700 text-[11px] font-mono rounded-lg px-3 py-2 overflow-x-auto whitespace-pre-wrap">
+                <pre className="bg-gray-50 border border-gray-200 text-gray-700 text-[11px] font-mono rounded-lg px-3 py-2 max-h-56 overflow-y-auto whitespace-pre-wrap break-all">
                   {JSON.stringify(result.result, null, 2)}
                 </pre>
               )}
@@ -520,9 +550,9 @@ function MultiSelect({ label, items, selected, onToggle, empty }: {
       <div className="mt-1 border border-gray-200 rounded-lg max-h-32 overflow-y-auto divide-y divide-gray-50">
         {items.length === 0 && <div className="text-xs text-gray-400 px-3 py-2">{empty}</div>}
         {items.map((it) => (
-          <label key={it.id} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer">
-            <input type="checkbox" checked={selected.includes(it.id)} onChange={() => onToggle(it.id)} />
-            <span className="truncate">{it.name}</span>
+          <label key={it.id} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer min-w-0">
+            <input type="checkbox" checked={selected.includes(it.id)} onChange={() => onToggle(it.id)} className="shrink-0" />
+            <TruncatedText text={it.name} className="min-w-0" />
           </label>
         ))}
       </div>
@@ -538,14 +568,23 @@ function PackEditor({ pack, categories, bases, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const availableCategoryIds = new Set(categories.map((category) => category.id));
+  const availableGraphIds = new Set(bases.filter((base) => base.kb_type === 'graph').map((base) => base.id));
+  const availableVectorIds = new Set(bases.filter((base) => base.kb_type === 'vector').map((base) => base.id));
   const [name, setName] = useState(pack?.name ?? '');
   const [description, setDescription] = useState(pack?.description ?? '');
   const [version, setVersion] = useState(pack?.version ?? '1.0.0');
   const [icon, setIcon] = useState(pack?.icon ?? 'Package');
   const [color, setColor] = useState(pack?.color ?? 'sky');
-  const [categoryIds, setCategoryIds] = useState<string[]>(pack?.category_ids ?? []);
-  const [graphKbIds, setGraphKbIds] = useState<string[]>(pack?.graph_kb_ids ?? []);
-  const [vectorKbIds, setVectorKbIds] = useState<string[]>(pack?.vector_kb_ids ?? []);
+  const [categoryIds, setCategoryIds] = useState<string[]>(
+    () => (pack?.category_ids ?? []).filter((id) => availableCategoryIds.has(id)),
+  );
+  const [graphKbIds, setGraphKbIds] = useState<string[]>(
+    () => (pack?.graph_kb_ids ?? []).filter((id) => availableGraphIds.has(id)),
+  );
+  const [vectorKbIds, setVectorKbIds] = useState<string[]>(
+    () => (pack?.vector_kb_ids ?? []).filter((id) => availableVectorIds.has(id)),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -638,14 +677,15 @@ function PackEditor({ pack, categories, bases, onClose, onSaved }: {
                 <button onClick={doIngest} disabled={ingestBusy} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50">
                   {ingestBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} 灌入
                 </button>
-                {ingestMsg && <span className="text-xs text-gray-600">{ingestMsg}</span>}
+                {ingestMsg && <span className="text-xs text-gray-600 min-w-0 max-h-16 overflow-y-auto whitespace-pre-wrap break-all">{ingestMsg}</span>}
               </div>
             </div>
           )}
 
           {error && (
             <div className="flex items-start gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" /><span>{error}</span>
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span className="min-w-0 max-h-24 overflow-y-auto whitespace-pre-wrap break-all">{error}</span>
             </div>
           )}
         </div>

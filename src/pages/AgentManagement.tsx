@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Settings, X, Plus, Save, Send, Bot, User, Smartphone, Monitor, MessageSquare, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles, Rocket } from 'lucide-react';
+import { Settings, X, Plus, Save, Send, Bot, User, Smartphone, Monitor, MessageSquare, Trash2, Shield, Tag, Wrench, Car, Zap, FileText, Activity, Headset, Battery, MessageCirclePlus, Sparkles, Rocket, Paperclip, Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useHealth, useAgents, useSkills, useMcpServers, useRuntimeConfig, useKnowledgePacks } from '../api/hooks';
 import { api, type SuggestedAction } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
 import PublishDrawer from '../components/PublishDrawer';
+import TruncatedText, { tooltipText } from '../components/TruncatedText';
 
 const ICONS: Record<string, any> = { Bot, User, Smartphone, Monitor, Wrench, Car, Zap, FileText, Activity, Headset, Battery, Shield, MessageCirclePlus, Sparkles };
 const COLORS = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-indigo-500', 'bg-rose-500', 'bg-slate-800'];
@@ -29,6 +30,10 @@ export default function AgentManagement() {
   const [chat, setChat] = useState<{ role: 'user' | 'agent' | 'system'; content: string; actions?: SuggestedAction[] }[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  const [chatImages, setChatImages] = useState<{ name: string; url: string }[]>([]);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   // 决策层（Phase 4）：点击建议动作后弹出的占位提示（工单系统规划中）
   const [pendingAction, setPendingAction] = useState<SuggestedAction | null>(null);
 
@@ -108,17 +113,24 @@ export default function AgentManagement() {
     setStreaming(false);
     setChat([]);
     setChatInput('');
+    setChatImages([]);
+    setUploadError(null);
     setPendingAction(null);
   }, [testingAgent]);
 
   const sendChat = async () => {
-    const text = chatInput.trim();
-    if (!text || streaming || !testingAgent?.id) return;
-    setChat((c) => [...c, { role: 'user', content: text }]);
+    const text = chatInput.trim() || (chatImages.length > 0 ? '请分析上传的图片' : '');
+    if (!text || streaming || uploadingImage || !testingAgent?.id) return;
+    const images = chatImages;
+    const displayText = images.length > 0
+      ? `${text}\n\n附件：${images.map(({ name }) => name).join('、')}`
+      : text;
+    setChat((c) => [...c, { role: 'user', content: displayText }]);
     setChatInput('');
+    setChatImages([]);
     setStreaming(true);
     try {
-      const res = await api.agentChat(testingAgent.id, text);
+      const res = await api.agentChat(testingAgent.id, text, images.map(({ url }) => url));
       setChat((c) => [...c, { role: 'agent', content: res.answer || '（无回复）', actions: res.suggested_actions }]);
       if (res.sources && res.sources.length > 0) {
         const src = res.sources.map((s) => s.code + (s.brand ? `·${s.brand}` : '')).join('、');
@@ -136,6 +148,21 @@ export default function AgentManagement() {
       setChat((c) => [...c, { role: 'system', content: `请求失败：${e instanceof Error ? e.message : String(e)}` }]);
     } finally {
       setStreaming(false);
+    }
+  };
+
+  const uploadChatImage = async (file?: File) => {
+    if (!file) return;
+    setUploadingImage(true);
+    setUploadError(null);
+    try {
+      const uploaded = await api.uploadImage(file);
+      setChatImages((images) => [...images, { name: file.name, url: uploaded.url }]);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setUploadingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = '';
     }
   };
 
@@ -170,6 +197,8 @@ export default function AgentManagement() {
 
   const handleDeleteAgent = async (id?: string) => {
     if (!id) return;
+    const agent = allAgents.find((item) => item.id === id);
+    if (!window.confirm(`确认删除智能体“${agent?.name || id}”吗？此操作不可撤销。`)) return;
     setActionError(null);
     try {
       await api.deleteAgent(id);
@@ -197,6 +226,12 @@ export default function AgentManagement() {
         </button>
       </div>
 
+      {actionError && !modalType && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 break-all">
+          {actionError}
+        </div>
+      )}
+
       {/* 后端批处理 Agent 实时列表 */}
       {agentsState.live && batchAgents.length > 0 && (
         <div className="bg-blue-50 rounded-xl border border-blue-200 p-4">
@@ -206,13 +241,13 @@ export default function AgentManagement() {
             <span className="text-xs bg-blue-600 text-white rounded-full px-2 py-0.5">{batchAgents.length}</span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {batchAgents.map((a, i) => (
-              <div key={i} className="bg-white rounded-lg p-3 border border-blue-100">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className={`w-2 h-2 rounded-full ${a.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
-                  <span className="text-xs font-medium text-gray-800 truncate">{a.name}</span>
+            {batchAgents.map((a) => (
+              <div key={a.id || a.name} className="bg-white rounded-lg p-3 border border-blue-100 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1 min-w-0">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${a.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
+                  <TruncatedText text={a.name} className="min-w-0 flex-1 text-xs font-medium text-gray-800" />
                 </div>
-                <div className="text-xs text-gray-500 truncate">{a.business_domain}</div>
+                <TruncatedText as="div" text={a.business_domain} className="text-xs text-gray-500" />
               </div>
             ))}
           </div>
@@ -229,46 +264,53 @@ export default function AgentManagement() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {userAgents.map((a) => (
-              <div key={a.id} className="bg-white rounded-lg p-3 border border-emerald-100">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {(() => {
-                      const AgentIcon = ICONS[a.icon] || Bot;
-                      return (
-                        <div className={`w-6 h-6 rounded flex items-center justify-center text-white ${a.color || 'bg-blue-500'} shrink-0 relative`}>
-                          <AgentIcon className="w-3.5 h-3.5" />
-                          <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-white ${a.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
-                        </div>
-                      );
-                    })()}
-                    <span className="text-sm font-medium text-gray-800 truncate">{a.name}</span>
-                    {a.published && (
-                      <span className="text-[10px] bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 shrink-0" title="已对外发布">已发布</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => setTestingAgent(a)} className="text-gray-400 hover:text-gray-700 p-1 rounded hover:bg-gray-100" title="测试对话">
-                      <MessageSquare className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => setPublishAgent(a)} className={`p-1 rounded hover:bg-gray-100 ${a.published ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`} title="对外发布">
-                      <Rocket className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => openModal('edit', a)} className="text-gray-400 hover:text-blue-600 p-1 rounded hover:bg-gray-100" title="编辑">
-                      <Settings className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => handleDeleteAgent(a.id)} className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-gray-100" title="删除">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+              <div key={a.id} className="bg-white rounded-lg p-3 border border-emerald-100 flex min-w-0 flex-col">
+                <div className="flex items-start gap-2 min-w-0">
+                  {(() => {
+                    const AgentIcon = ICONS[a.icon] || Bot;
+                    return (
+                      <div className={`w-6 h-6 rounded flex items-center justify-center text-white ${a.color || 'bg-blue-500'} shrink-0 relative`}>
+                        <AgentIcon className="w-3.5 h-3.5" />
+                        <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-white ${a.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />
+                      </div>
+                    );
+                  })()}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <TruncatedText text={a.name} className="min-w-0 flex-1 text-sm font-medium text-gray-800" />
+                      {a.published && (
+                        <span className="text-[10px] bg-blue-100 text-blue-700 rounded px-1.5 py-0.5 shrink-0" title="已对外发布">已发布</span>
+                      )}
+                    </div>
+                    <TruncatedText
+                      as="p"
+                      lines={2}
+                      text={a.description || a.business_domain}
+                      className="text-xs text-gray-500 mt-1"
+                    />
                   </div>
                 </div>
-                <div className="text-xs text-gray-500 mt-1 truncate">{a.description || a.business_domain || '—'}</div>
                 {Array.isArray(a.skills) && a.skills.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {a.skills.slice(0, 4).map((s, j) => (
-                      <span key={j} className="text-[10px] bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5">{s}</span>
+                      <TruncatedText key={j} text={s} className="max-w-[10rem] text-[10px] bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5" />
                     ))}
                   </div>
                 )}
+                <div className="mt-2 flex items-center justify-end gap-0.5 border-t border-emerald-50 pt-2">
+                  <button onClick={() => setTestingAgent(a)} aria-label="测试对话" className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-700" title="测试对话">
+                    <MessageSquare className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setPublishAgent(a)} aria-label="对外发布" className={`flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-gray-100 ${a.published ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`} title="对外发布">
+                    <Rocket className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => openModal('edit', a)} aria-label="编辑" className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-blue-600" title="编辑">
+                    <Settings className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handleDeleteAgent(a.id)} aria-label="删除" className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-red-600" title="删除">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -311,11 +353,16 @@ export default function AgentManagement() {
               className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden relative z-10 flex flex-col"
             >
               {/* Modal Header */}
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-                <h2 className="text-lg font-bold text-gray-900">
-                  {modalType === 'create' ? '创建新智能体' : `编辑智能体: ${selectedAgent?.name}`}
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3 bg-gray-50">
+                <h2 className="min-w-0 flex-1 text-lg font-bold text-gray-900">
+                  {modalType === 'create' ? '创建新智能体' : (
+                    <span className="flex min-w-0 items-baseline gap-1">
+                      <span className="shrink-0">编辑智能体:</span>
+                      <TruncatedText text={selectedAgent?.name} className="min-w-0 flex-1" />
+                    </span>
+                  )}
                 </h2>
-                <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
+                <button onClick={closeModal} className="shrink-0 text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -353,8 +400,10 @@ export default function AgentManagement() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">智能体名称</label>
-                      <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="例如：新能源电池维修助手" />
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        智能体名称 <span className="text-red-500" aria-hidden="true">*</span>
+                      </label>
+                      <input required aria-required="true" type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="例如：新能源电池维修助手" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
@@ -372,10 +421,10 @@ export default function AgentManagement() {
                         )}
                         {(packsState.data?.knowledge_packs ?? []).map((p) => (
                           <label key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer">
-                            <input type="checkbox" checked={form.knowledge_pack_ids.includes(p.id)} onChange={() => togglePack(p.id)} />
-                            <span className="font-medium text-gray-800 truncate">{p.name}</span>
-                            <span className="text-[11px] text-gray-400">v{p.version}</span>
-                            <span className="ml-auto text-[11px] text-gray-400">分类{p.category_ids?.length ?? 0}·图{p.graph_kb_ids?.length ?? 0}·向量{p.vector_kb_ids?.length ?? 0}</span>
+                            <input type="checkbox" className="shrink-0" checked={form.knowledge_pack_ids.includes(p.id)} onChange={() => togglePack(p.id)} />
+                            <TruncatedText text={p.name} className="min-w-0 flex-1 font-medium text-gray-800" />
+                            <span className="text-[11px] text-gray-400 shrink-0">v{p.version}</span>
+                            <span className="text-[11px] text-gray-400 shrink-0">分类{p.category_ids?.length ?? 0}·图{p.graph_kb_ids?.length ?? 0}·向量{p.vector_kb_ids?.length ?? 0}</span>
                           </label>
                         ))}
                       </div>
@@ -387,10 +436,10 @@ export default function AgentManagement() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">基础模型 (LLM)</label>
-                      <select value={form.model || (availableModels[0] ?? '')} onChange={(e) => setForm({ ...form, model: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                      <select value={form.model || (availableModels[0] ?? '')} onChange={(e) => setForm({ ...form, model: e.target.value })} title={tooltipText(form.model || availableModels[0])} className="w-full truncate border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
                         {availableModels.length > 0 ? (
                           availableModels.map((m) => (
-                            <option key={m} value={m}>{m === gw?.default_model ? `${m}（网关默认）` : m}</option>
+                            <option key={m} value={m} title={tooltipText(m)}>{m === gw?.default_model ? `${m}（网关默认）` : m}</option>
                           ))
                         ) : (
                           <option value="">（网关未配置模型）</option>
@@ -402,18 +451,18 @@ export default function AgentManagement() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">多模型挂载 (model_mounts)</label>
                         <p className="text-xs text-gray-400 mb-2">按能力槽挂载不同型号；留空则回退上方基础模型 / 网关默认。含图片的消息优先走 vision 槽。</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          <div>
+                          <div className="min-w-0">
                             <span className="text-xs text-gray-500">对话 (chat)</span>
-                            <select value={form.model_mounts.chat || ''} onChange={(e) => setMount('chat', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                            <select value={form.model_mounts.chat || ''} onChange={(e) => setMount('chat', e.target.value)} title={tooltipText(chatResources.find((r) => r.id === form.model_mounts.chat)?.name)} className="w-full truncate border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
                               <option value="">（不挂载 / 用基础模型）</option>
-                              {chatResources.map((r) => <option key={r.id} value={r.id}>{r.name || r.model}</option>)}
+                              {chatResources.map((r) => <option key={r.id} value={r.id} title={tooltipText(r.name || r.model)}>{r.name || r.model}</option>)}
                             </select>
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <span className="text-xs text-gray-500">视觉 (vision)</span>
-                            <select value={form.model_mounts.vision || ''} onChange={(e) => setMount('vision', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                            <select value={form.model_mounts.vision || ''} onChange={(e) => setMount('vision', e.target.value)} title={tooltipText(visionResources.find((r) => r.id === form.model_mounts.vision)?.name)} className="w-full truncate border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
                               <option value="">（不挂载）</option>
-                              {visionResources.map((r) => <option key={r.id} value={r.id}>{r.name || r.model}</option>)}
+                              {visionResources.map((r) => <option key={r.id} value={r.id} title={tooltipText(r.name || r.model)}>{r.name || r.model}</option>)}
                             </select>
                           </div>
                         </div>
@@ -425,9 +474,9 @@ export default function AgentManagement() {
                         {!mcpState.live && <div className="text-xs text-gray-400 text-center py-2">后端离线，MCP 列表不可用</div>}
                         {mcpState.live && (mcpState.data?.servers ?? []).length === 0 && <div className="text-xs text-gray-400 text-center py-2">暂无已注册 MCP 服务</div>}
                         {(mcpState.data?.servers ?? []).map((s) => (
-                          <div key={s.id} className="flex items-center justify-between text-sm text-gray-700">
-                            <span className="truncate">{s.name}</span>
-                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${s.status === 'online' || s.status === 'connected' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'}`}>{s.status}</span>
+                          <div key={s.id} className="flex items-center justify-between gap-2 text-sm text-gray-700">
+                            <TruncatedText text={s.name} className="min-w-0 flex-1" />
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${s.status === 'online' || s.status === 'connected' ? 'bg-green-50 text-green-600' : 'bg-gray-100 text-gray-500'}`}>{s.status}</span>
                           </div>
                         ))}
                       </div>
@@ -473,19 +522,20 @@ export default function AgentManagement() {
                                   />
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="text-sm font-medium text-gray-800">{skill.name}</span>
-                                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-0.5 ${secColor}`}>
+                                      <TruncatedText text={skill.name} className="max-w-full text-sm font-medium text-gray-800" />
+                                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0 ${secColor}`}>
                                         <Shield className="w-2.5 h-2.5" />{skill.security_level}
                                       </span>
-                                      <span className="text-[10px] text-gray-400 flex items-center gap-0.5">
-                                        <Tag className="w-2.5 h-2.5" />{skill.category}
+                                      <span className="text-[10px] text-gray-400 flex min-w-0 max-w-[10rem] items-center gap-0.5">
+                                        <Tag className="w-2.5 h-2.5 shrink-0" />
+                                        <TruncatedText text={skill.category} className="min-w-0 flex-1" fallback={null} />
                                       </span>
                                     </div>
-                                    <div className="text-xs text-gray-500 mt-0.5 truncate">{skill.description}</div>
+                                    <TruncatedText as="div" lines={2} text={skill.description} className="text-xs text-gray-500 mt-0.5" fallback={null} />
                                     {skill.allowed_roles.length > 0 && (
                                       <div className="flex gap-1 mt-1 flex-wrap">
                                         {skill.allowed_roles.map(r => (
-                                          <span key={r} className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono">{r}</span>
+                                          <TruncatedText key={r} text={r} className="max-w-[8rem] text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono" />
                                         ))}
                                       </div>
                                     )}
@@ -505,7 +555,7 @@ export default function AgentManagement() {
               {/* Modal Footer */}
               {(modalType === 'create' || modalType === 'edit') && (
                 <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex items-center justify-end gap-3">
-                  {actionError && <span className="text-xs text-red-600 mr-auto">{actionError}</span>}
+                  {actionError && <span className="mr-auto min-w-0 max-h-16 overflow-y-auto text-xs text-red-600 break-all">{actionError}</span>}
                   <button onClick={closeModal} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
                     取消
                   </button>
@@ -538,24 +588,24 @@ export default function AgentManagement() {
               className="relative w-full max-w-2xl bg-gray-50 h-full shadow-2xl flex flex-col border-l border-gray-200"
             >
               {/* Drawer Header */}
-              <div className="px-4 py-3 border-b border-gray-200 bg-white flex items-center justify-between shadow-sm z-10">
-                <div className="flex items-center gap-3">
+              <div className="px-4 py-3 border-b border-gray-200 bg-white flex items-center justify-between gap-3 shadow-sm z-10">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
                   {(() => {
                     const AgentIcon = ICONS[testingAgent.icon] || Bot;
                     return (
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white ${testingAgent.color || 'bg-gray-900'} shadow-sm`}>
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white ${testingAgent.color || 'bg-gray-900'} shadow-sm shrink-0`}>
                         <AgentIcon className="w-5 h-5" />
                       </div>
                     );
                   })()}
-                  <div>
-                    <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                      {testingAgent.name}
-                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-base font-bold text-gray-900 flex min-w-0 items-center gap-2">
+                      <TruncatedText text={testingAgent.name} className="min-w-0 flex-1" />
+                      <span className="w-2 h-2 rounded-full bg-green-500 shrink-0"></span>
                     </h2>
                   </div>
                 </div>
-                <button onClick={() => setTestingAgent(null)} className="text-gray-400 hover:text-gray-600 p-2 rounded-md hover:bg-gray-100 transition-colors">
+                <button onClick={() => setTestingAgent(null)} className="shrink-0 text-gray-400 hover:text-gray-600 p-2 rounded-md hover:bg-gray-100 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -581,15 +631,15 @@ export default function AgentManagement() {
                     )}
                     {msg.role === 'system' ? (
                       <div className="w-full text-center">
-                        <span className="inline-block text-[11px] text-gray-500 bg-gray-100 border border-gray-200 rounded px-2 py-1 font-mono">{msg.content}</span>
+                        <span className="inline-block max-w-full text-[11px] text-gray-500 bg-gray-100 border border-gray-200 rounded px-2 py-1 font-mono break-all">{msg.content}</span>
                       </div>
                     ) : (
                       <div className={`flex flex-col gap-2 max-w-[85%] ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                         <div className={`px-4 py-2.5 rounded-2xl text-sm shadow-sm overflow-hidden ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-sm' : 'bg-white text-gray-800 border border-gray-100 rounded-tl-sm'}`}>
                           {msg.role === 'user' ? (
-                            <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                            <p className="leading-relaxed whitespace-pre-wrap break-all">{msg.content}</p>
                           ) : (
-                            <div className="prose prose-sm prose-zinc max-w-none">
+                            <div className="prose prose-sm prose-zinc max-w-none break-words">
                               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                 {msg.content}
                               </ReactMarkdown>
@@ -608,13 +658,13 @@ export default function AgentManagement() {
                                 <button
                                   key={act.action}
                                   onClick={() => setPendingAction(act)}
-                                  title={act.reason}
-                                  className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                                  title={tooltipText(act.reason)}
+                                  className="flex min-w-0 max-w-[16rem] items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
                                 >
-                                  <ActIcon className="w-3.5 h-3.5" />
-                                  {act.label}
+                                  <ActIcon className="w-3.5 h-3.5 shrink-0" />
+                                  <TruncatedText text={act.label} className="min-w-0 flex-1" noTooltip />
                                   {act.requires_business_data && (
-                                    <span className="text-[10px] text-amber-600 font-normal">· 规划中</span>
+                                    <span className="text-[10px] text-amber-600 font-normal shrink-0">· 规划中</span>
                                   )}
                                 </button>
                               );
@@ -632,7 +682,37 @@ export default function AgentManagement() {
 
               {/* Input Area */}
               <div className="p-4 bg-white border-t border-gray-200">
+                {chatImages.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {chatImages.map((image) => (
+                      <span key={image.url} className="flex min-w-0 max-w-[14rem] items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-700">
+                        <TruncatedText text={image.name} className="min-w-0 flex-1" />
+                        <button type="button" className="shrink-0" aria-label={`移除 ${image.name}`} onClick={() => setChatImages((images) => images.filter(({ url }) => url !== image.url))}>
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {uploadError && <p role="alert" className="mb-2 text-xs text-red-600">图片上传失败：{uploadError}</p>}
                 <div className="flex items-end gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition-all">
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => uploadChatImage(event.target.files?.[0])}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    disabled={streaming || uploadingImage}
+                    title="上传图片"
+                    aria-label="上传图片"
+                    className="p-2 text-gray-500 hover:bg-gray-200 hover:text-gray-700 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {uploadingImage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                  </button>
                   <textarea
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
@@ -641,7 +721,7 @@ export default function AgentManagement() {
                     placeholder="输入消息，回车发送..."
                     rows={1}
                   ></textarea>
-                  <button onClick={sendChat} disabled={streaming || !chatInput.trim()} className="p-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors shrink-0 shadow-sm disabled:opacity-50">
+                  <button onClick={sendChat} disabled={streaming || uploadingImage || (!chatInput.trim() && chatImages.length === 0)} className="p-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors shrink-0 shadow-sm disabled:opacity-50">
                     <Send className="w-4 h-4" />
                   </button>
                 </div>
@@ -677,25 +757,25 @@ export default function AgentManagement() {
               exit={{ opacity: 0, scale: 0.95 }}
               className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   {(() => {
                     const ActIcon = ICONS[pendingAction.icon] || Sparkles;
-                    return <ActIcon className="w-5 h-5 text-blue-600" />;
+                    return <ActIcon className="w-5 h-5 text-blue-600 shrink-0" />;
                   })()}
-                  <h2 className="font-semibold text-gray-900">{pendingAction.label}</h2>
+                  <TruncatedText as="p" lines={2} text={pendingAction.label} className="min-w-0 flex-1 font-semibold text-gray-900" />
                 </div>
-                <button onClick={() => setPendingAction(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                <button onClick={() => setPendingAction(null)} className="shrink-0 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
               </div>
-              <div className="text-sm text-gray-600">
+              <div className="max-h-40 overflow-y-auto text-sm text-gray-600 break-all">
                 {pendingAction.reason}
               </div>
-              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2 font-mono">
+              <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-3 py-2 font-mono break-all">
                 决策层映射 · ActionType = <span className="text-gray-800">{pendingAction.action}</span>
                 {pendingAction.target && <> · target = <span className="text-gray-800">{pendingAction.target}</span></>}
               </div>
               {pendingAction.requires_business_data ? (
-                <div className="text-sm px-3 py-2 rounded border bg-amber-50 border-amber-200 text-amber-700">
+                <div className="text-sm px-3 py-2 rounded border bg-amber-50 border-amber-200 text-amber-700 break-all">
                   ⚠️ {pendingAction.note || '该动作依赖车辆等业务数据'}。工单系统尚未接入（规划中），此处为决策层占位演示，暂不写回。未来业务库经 MCP 对接后即可一键落单。
                 </div>
               ) : (

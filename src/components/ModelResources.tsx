@@ -3,6 +3,7 @@ import { Plus, Trash2, Save, RefreshCw, AlertTriangle, Server, Zap, Download, Ch
 import { api, type ProviderInfo, type ModelResourceInfo, type ModelTestResult } from '../api/client';
 import { useRuntimeConfig } from '../api/hooks';
 import LiveBadge from './LiveBadge';
+import TruncatedText, { tooltipText } from './TruncatedText';
 import GatewayRoutingSection from './registry/GatewayRoutingSection';
 import EmbeddingAdvancedSection from './registry/EmbeddingAdvancedSection';
 
@@ -44,6 +45,7 @@ export default function ModelResources() {
   const [fetchingPid, setFetchingPid] = useState<string | null>(null);
   const [picker, setPicker] = useState<{ pid: string; items: { id: string; modality: string; checked: boolean }[]; msg?: string } | null>(null);
   const [activatingId, setActivatingId] = useState<string | null>(null);
+  const emb = backend.data?.embedding;
 
   // 首次拿到后端快照后载入本地编辑态（provider 不含明文 key，仅 api_key_configured）。
   useEffect(() => {
@@ -73,7 +75,42 @@ export default function ModelResources() {
     ]);
   const updResource = (id: string, patch: Partial<ModelResourceInfo>) =>
     setResources((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-  const delResource = (id: string) => setResources((rs) => rs.filter((r) => r.id !== id));
+  const delResource = async (id: string) => {
+    const resource = resources.find((item) => item.id === id);
+    const deletingActiveVector = !!resource
+      && !!emb?.enabled
+      && emb.provider === 'oneapi'
+      && !!resource.model
+      && emb.oneapi?.model === resource.model;
+    const nextResources = resources.filter((item) => item.id !== id);
+    if (!deletingActiveVector) {
+      setResources(nextResources);
+      return;
+    }
+    if (!window.confirm('该型号是当前生效向量。删除后将切换到本地回退向量并触发索引重建，是否继续？')) return;
+
+    setSaving(true);
+    setMsg(null);
+    try {
+      const outProviders = providers.map(({ api_key, api_key_configured, ...rest }) =>
+        api_key?.trim() ? { ...rest, api_key: api_key.trim() } : rest,
+      );
+      const updated = await api.updateConfig({
+        models: { providers: outProviders, resources: nextResources },
+        embedding: { enabled: false, provider: 'fallback' },
+      });
+      const snapshot = updated.config.models;
+      setProviders((snapshot?.providers ?? outProviders).map((p) => ({ ...p, api_key: '' })));
+      setResources((snapshot?.resources ?? nextResources).map((r) => ({ ...r })));
+      setLoaded(true);
+      await backend.refresh();
+      setMsg('✅ 已删除生效向量并切换到本地回退向量');
+    } catch (error) {
+      setMsg(`❌ ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setSaving(false);
+    }
+  };
   const toggleModality = (id: string, mod: string) =>
     setResources((rs) =>
       rs.map((r) => {
@@ -92,8 +129,13 @@ export default function ModelResources() {
         const { api_key, api_key_configured, ...rest } = p;
         return api_key && api_key.trim() ? { ...rest, api_key: api_key.trim() } : rest;
       });
-      await api.updateConfig({ models: { providers: outProviders, resources } });
-      setLoaded(false);
+      const updated = await api.updateConfig({ models: { providers: outProviders, resources } });
+      const snapshot = updated.config.models;
+      if (snapshot) {
+        setProviders(snapshot.providers.map((p) => ({ ...p, api_key: '' })));
+        setResources(snapshot.resources.map((r) => ({ ...r })));
+        setLoaded(true);
+      }
       await backend.refresh();
       setMsg('✅ 已保存并热更新（免重启即时生效）');
       return true;
@@ -176,7 +218,6 @@ export default function ModelResources() {
   };
 
   const providerName = (id: string) => providers.find((p) => p.id === id)?.name || id;
-  const emb = backend.data?.embedding;
   const isActiveVector = (r: ModelResourceInfo) =>
     !!emb?.enabled && emb.provider === 'oneapi' && !!r.model && emb.oneapi?.model === r.model;
   const activeTab = MODALITY_TABS.find((t) => t.id === modalityTab) ?? MODALITY_TABS[0];
@@ -213,7 +254,9 @@ export default function ModelResources() {
       </div>
 
       {msg && (
-        <div className={`text-sm rounded-lg px-3 py-2 ${msg.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>{msg}</div>
+        <div className={`text-sm rounded-lg px-3 py-2 ${msg.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+          <TruncatedText as="div" text={msg} lines={3} />
+        </div>
       )}
 
       {/* ── Providers ── */}
@@ -229,19 +272,19 @@ export default function ModelResources() {
           <div key={p.id} className="border border-gray-200 rounded-lg p-4 space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex items-center gap-2 md:col-span-2">
-                <input className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="显示名（如 阿里云百炼）"
-                  value={p.name || ''} onChange={(e) => updProvider(i, { name: e.target.value })} />
-                <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap">
+                <input className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-ellipsis" placeholder="显示名（如 阿里云百炼）"
+                  title={tooltipText(p.name)} value={p.name || ''} onChange={(e) => updProvider(i, { name: e.target.value })} />
+                <label className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap shrink-0">
                   <input type="checkbox" checked={p.enabled ?? true} onChange={(e) => updProvider(i, { enabled: e.target.checked })} /> 启用
                 </label>
                 <button onClick={() => fetchModels(p)} disabled={fetchingPid === p.id || !backend.live}
-                  className="border border-gray-300 text-gray-600 px-2.5 py-1.5 rounded-lg text-xs hover:bg-gray-50 flex items-center gap-1 disabled:opacity-40 whitespace-nowrap" title="调用 /v1/models 拉取型号">
+                  className="border border-gray-300 text-gray-600 px-2.5 py-1.5 rounded-lg text-xs hover:bg-gray-50 flex items-center gap-1 disabled:opacity-40 whitespace-nowrap shrink-0" title="调用 /v1/models 拉取型号">
                   <Download className="w-3.5 h-3.5" /> {fetchingPid === p.id ? '拉取中…' : '拉取型号'}
                 </button>
-                <button onClick={() => delProvider(i)} className="text-red-500 hover:text-red-600 p-1" title="删除"><Trash2 className="w-4 h-4" /></button>
+                <button onClick={() => delProvider(i)} className="text-red-500 hover:text-red-600 p-1 shrink-0" title="删除"><Trash2 className="w-4 h-4" /></button>
               </div>
-              <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="base_url（含/不含 /v1 均可，如 https://api.xxx.com 或 https://api.xxx.com/v1）"
-                value={p.base_url} onChange={(e) => updProvider(i, { base_url: e.target.value })} />
+              <input className="min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-ellipsis" placeholder="base_url（含/不含 /v1 均可，如 https://api.xxx.com 或 https://api.xxx.com/v1）"
+                title={tooltipText(p.base_url)} value={p.base_url} onChange={(e) => updProvider(i, { base_url: e.target.value })} />
               <input type="password" className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 placeholder={p.api_key_configured ? '（已配置，留空则不修改）' : 'api_key'}
                 value={p.api_key || ''} onChange={(e) => updProvider(i, { api_key: e.target.value })} />
@@ -263,9 +306,9 @@ export default function ModelResources() {
                     <div className="max-h-56 overflow-auto space-y-1.5">
                       {picker.items.map((it, idx) => (
                         <div key={it.id} className="flex items-center gap-2 text-xs">
-                          <input type="checkbox" checked={it.checked} onChange={(e) => setPickerItem(idx, { checked: e.target.checked })} />
-                          <span className="font-mono flex-1 truncate" title={it.id}>{it.id}</span>
-                          <select className="border border-gray-300 rounded px-1.5 py-1" value={it.modality} onChange={(e) => setPickerItem(idx, { modality: e.target.value })}>
+                          <input type="checkbox" className="shrink-0" checked={it.checked} onChange={(e) => setPickerItem(idx, { checked: e.target.checked })} />
+                          <TruncatedText text={it.id} className="font-mono flex-1 min-w-0" />
+                          <select className="border border-gray-300 rounded px-1.5 py-1 shrink-0" value={it.modality} onChange={(e) => setPickerItem(idx, { modality: e.target.value })}>
                             {MODALITIES.map((m) => <option key={m} value={m}>{m}</option>)}
                           </select>
                         </div>
@@ -309,7 +352,7 @@ export default function ModelResources() {
         {modalityTab === 'embedding' && (
           <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs text-indigo-800">
             当前生效向量：{emb?.enabled && emb.provider === 'oneapi'
-              ? <><strong>{emb.oneapi?.model || '—'}</strong>（维度 {emb.active_dimension}）</>
+              ? <><strong className="break-all" title={tooltipText(emb.oneapi?.model)}>{emb.oneapi?.model || '—'}</strong>（维度 {emb.active_dimension}）</>
               : <>非注册表桥接（provider=<strong>{emb?.provider ?? '—'}</strong>，维度 {emb?.active_dimension ?? '—'}）</>}
             ；点某型号「设为生效向量」将热切换并<strong>自动重建所有向量库索引</strong>。
           </div>
@@ -327,15 +370,16 @@ export default function ModelResources() {
           return (
             <div key={r.id} className={`border rounded-lg p-4 space-y-3 ${active ? 'border-emerald-300 bg-emerald-50/30' : 'border-gray-200'}`}>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="显示名（如 通义千问-VL-Max）"
-                  value={r.name || ''} onChange={(e) => updResource(r.id, { name: e.target.value })} />
-                <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm" value={r.provider_id}
+                <input className="min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-ellipsis" placeholder="显示名（如 通义千问-VL-Max）"
+                  title={tooltipText(r.name)} value={r.name || ''} onChange={(e) => updResource(r.id, { name: e.target.value })} />
+                <select className="min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm" value={r.provider_id}
+                  title={tooltipText(providerName(r.provider_id))}
                   onChange={(e) => updResource(r.id, { provider_id: e.target.value })}>
                   <option value="">选择 Provider…</option>
                   {providers.map((p) => <option key={p.id} value={p.id}>{p.name || p.id}</option>)}
                 </select>
-                <input className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="真实型号名 model（如 qwen-vl-max）"
-                  value={r.model} onChange={(e) => updResource(r.id, { model: e.target.value })} />
+                <input className="min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-ellipsis" placeholder="真实型号名 model（如 qwen-vl-max）"
+                  title={tooltipText(r.model)} value={r.model} onChange={(e) => updResource(r.id, { model: e.target.value })} />
                 {isVec ? (
                   <input type="number" className="border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="dimension（向量维度，必填）"
                     value={r.dimension ?? ''} onChange={(e) => updResource(r.id, { dimension: e.target.value ? Number(e.target.value) : null })} />
@@ -356,27 +400,35 @@ export default function ModelResources() {
                 <label className="flex items-center gap-1"><input type="checkbox" checked={r.enabled ?? true} onChange={(e) => updResource(r.id, { enabled: e.target.checked })} /> 启用</label>
                 <label className="flex items-center gap-1"><input type="checkbox" checked={r.supports_tools ?? false} onChange={(e) => updResource(r.id, { supports_tools: e.target.checked })} /> 工具</label>
                 <label className="flex items-center gap-1"><input type="checkbox" checked={r.supports_reasoning ?? false} onChange={(e) => updResource(r.id, { supports_reasoning: e.target.checked })} /> 推理</label>
-                <div className="ml-auto flex items-center gap-2">
-                  {active && <span className="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> 生效中</span>}
+                <div className="ml-auto flex min-w-0 items-center gap-2">
+                  {active && <span className="px-2 py-0.5 rounded text-xs bg-emerald-100 text-emerald-700 flex items-center gap-1 shrink-0"><CheckCircle2 className="w-3 h-3" /> 生效中</span>}
                   {t && !t.pending && (
-                    <span className={`px-2 py-0.5 rounded text-xs ${t.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
-                      {t.ok ? `✅ ${t.http_status} · ${t.latency_ms}ms${t.dimension ? ` · dim=${t.dimension}` : ''}` : `❌ ${t.error || `HTTP ${t.http_status}`}`}
-                    </span>
+                    t.ok ? (
+                      <span className="px-2 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 shrink-0">
+                        {`✅ ${t.http_status} · ${t.latency_ms}ms${t.dimension ? ` · dim=${t.dimension}` : ''}`}
+                      </span>
+                    ) : (
+                      <TruncatedText as="span" lines={3} className="px-2 py-0.5 rounded text-xs bg-red-50 text-red-700 max-w-xs"
+                        text={`❌ ${t.error || `HTTP ${t.http_status}`}`} />
+                    )
                   )}
                   {isVec && !active && (
                     <button onClick={() => activateVector(r)} disabled={activatingId === r.id || !backend.live}
-                      className="border border-indigo-300 text-indigo-700 px-2.5 py-1 rounded text-xs hover:bg-indigo-50 flex items-center gap-1 disabled:opacity-40">
+                      className="border border-indigo-300 text-indigo-700 px-2.5 py-1 rounded text-xs hover:bg-indigo-50 flex items-center gap-1 disabled:opacity-40 shrink-0">
                       {activatingId === r.id ? '生效中…' : '设为生效向量'}
                     </button>
                   )}
                   <button onClick={() => runTest(r)} disabled={t?.pending}
-                    className="border border-gray-300 text-gray-600 px-2.5 py-1 rounded text-xs hover:bg-gray-50 flex items-center gap-1 disabled:opacity-40">
+                    className="border border-gray-300 text-gray-600 px-2.5 py-1 rounded text-xs hover:bg-gray-50 flex items-center gap-1 disabled:opacity-40 shrink-0">
                     <Zap className="w-3.5 h-3.5" /> {t?.pending ? '测试中…' : '连通性测试'}
                   </button>
-                  <button onClick={() => delResource(r.id)} className="text-red-500 hover:text-red-600 p-1" title="删除"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => delResource(r.id)} className="text-red-500 hover:text-red-600 p-1 shrink-0" title="删除"><Trash2 className="w-4 h-4" /></button>
                 </div>
               </div>
-              <p className="text-[11px] text-gray-400">Provider: {providerName(r.provider_id)}</p>
+              <div className="flex items-center gap-1 text-[11px] text-gray-400">
+                <span className="shrink-0">Provider:</span>
+                <TruncatedText text={providerName(r.provider_id)} className="min-w-0" />
+              </div>
             </div>
           );
         })}

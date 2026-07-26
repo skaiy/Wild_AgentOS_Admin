@@ -1,6 +1,7 @@
 import { Cpu, GitMerge, RefreshCw, UserCheck, Database, Activity, Boxes, Server, Bot, User, Smartphone, Monitor, Wrench, Car, Zap, FileText, Headset, Battery, Shield } from 'lucide-react';
 import { useRuntimeConfig, useMetrics, useAgents } from '../api/hooks';
 import LiveBadge from '../components/LiveBadge';
+import TruncatedText from '../components/TruncatedText';
 
 const ICONS: Record<string, any> = { Bot, User, Smartphone, Monitor, Wrench, Car, Zap, FileText, Activity, Headset, Battery, Shield };
 
@@ -27,7 +28,7 @@ export default function RuntimeKernel() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">Runtime Kernel (运行时内核)</h1>
           <p className="text-sm text-gray-500 mt-1">语义内核运行时指标、内核配置与业务智能体概览（实时）</p>
         </div>
@@ -43,7 +44,7 @@ export default function RuntimeKernel() {
                 <GitMerge className="w-5 h-5 text-blue-600" />
                 语义内核运行时指标
               </h2>
-              <span className={`text-xs px-2 py-1 rounded-full font-medium ${metrics.live ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+              <span className={`text-xs px-2 py-1 rounded-full font-medium shrink-0 ${metrics.live ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
                 {metrics.live ? '实时 · 每 5s 刷新' : '后端离线'}
               </span>
             </div>
@@ -85,7 +86,7 @@ export default function RuntimeKernel() {
             {agents.live && agentList.length > 0 && (
               <div className="space-y-2 max-h-72 overflow-y-auto">
                 {agentList.map((a, i) => (
-                  <div key={a.id ?? i} className="flex items-center justify-between border border-gray-100 rounded-lg px-3 py-2.5 bg-gray-50">
+                  <div key={a.id ?? i} className="flex items-center justify-between gap-3 border border-gray-100 rounded-lg px-3 py-2.5 bg-gray-50">
                     <div className="flex items-center gap-2 min-w-0">
                       {(() => {
                         const AgentIcon = ICONS[a.icon] || Bot;
@@ -96,8 +97,8 @@ export default function RuntimeKernel() {
                           </div>
                         );
                       })()}
-                      <span className="text-sm font-medium text-gray-800 truncate">{a.name}</span>
-                      <span className="text-xs text-gray-400 truncate">{a.business_domain || '—'}</span>
+                      <span className="text-sm font-medium text-gray-800 min-w-0"><TruncatedText text={a.name} /></span>
+                      <span className="text-xs text-gray-400 min-w-0"><TruncatedText text={a.business_domain} fallback="—" /></span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {Array.isArray(a.skills) && a.skills.length > 0 && (
@@ -136,7 +137,7 @@ export default function RuntimeKernel() {
                 ].map(([k, v]) => (
                   <div key={String(k)} className="flex items-center justify-between gap-3">
                     <dt className="text-gray-500 shrink-0">{k}</dt>
-                    <dd className="text-gray-900 font-medium truncate text-right">{v ?? '—'}</dd>
+                    <dd className="text-gray-900 font-medium min-w-0 text-right"><TruncatedText text={v != null ? String(v) : null} fallback="—" /></dd>
                   </div>
                 ))}
               </dl>
@@ -147,16 +148,16 @@ export default function RuntimeKernel() {
             <h2 className="text-lg font-bold text-gray-900 mb-4">内核特性状态</h2>
             <ul className="space-y-3">
               <li className="flex items-center gap-3 text-sm">
-                <RefreshCw className="w-4 h-4 text-green-500" />
+                <RefreshCw className="w-4 h-4 text-green-500 shrink-0" />
                 <span className="text-gray-700">事件总线在线（{live ? `${fmt(m?.subscribers)} 订阅者` : '—'}）</span>
               </li>
               <li className="flex items-center gap-3 text-sm">
-                <UserCheck className="w-4 h-4 text-green-500" />
+                <UserCheck className="w-4 h-4 text-green-500 shrink-0" />
                 <span className="text-gray-700">最大并行 Agent（{live ? c?.agents.max_parallel_agents ?? '—' : '—'}）</span>
               </li>
-              <li className="flex items-center gap-3 text-sm">
-                <Cpu className="w-4 h-4 text-green-500" />
-                <span className="text-gray-700">{live ? `推理模型: ${c?.gateway.default_model ?? '—'}` : 'CoT 推理规划引擎'}</span>
+              <li className="flex items-center gap-3 text-sm min-w-0">
+                <Cpu className="w-4 h-4 text-green-500 shrink-0" />
+                <span className="text-gray-700 min-w-0">{live ? <span className="flex items-center gap-1 min-w-0"><span className="shrink-0">推理模型:</span> <TruncatedText text={c?.gateway.default_model} fallback="—" className="min-w-0" /></span> : 'CoT 推理规划引擎'}</span>
               </li>
             </ul>
           </div>

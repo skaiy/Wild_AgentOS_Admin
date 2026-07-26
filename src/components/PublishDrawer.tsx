@@ -4,6 +4,7 @@ import { X, Copy, Rocket, Globe, CheckCircle2, AlertTriangle, KeyRound } from 'l
 import { api } from '../api/client';
 import { getBackendBase } from '../api/config';
 import { useApiClients } from '../api/hooks';
+import TruncatedText, { tooltipText } from './TruncatedText';
 
 interface Props {
   agent: any;
@@ -51,15 +52,32 @@ export default function PublishDrawer({ agent, onClose, onChanged }: Props) {
     }
   };
 
-  const copy = (text: string, tag: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(tag); setTimeout(() => setCopied(null), 1500);
-    });
+  const copy = async (text: string, tag: string) => {
+    setErr(null);
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copiedSuccessfully = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (!copiedSuccessfully) throw new Error('浏览器拒绝了复制操作');
+      }
+      setCopied(tag);
+      window.setTimeout(() => setCopied(null), 1500);
+    } catch (error) {
+      setErr(`复制失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const CodeBlock = ({ text, tag }: { text: string; tag: string }) => (
-    <div className="relative">
-      <pre className="bg-gray-900 text-gray-100 text-xs rounded-lg p-3 overflow-x-auto whitespace-pre-wrap break-all">{text}</pre>
+    <div className="relative min-w-0">
+      <pre className="max-w-full max-h-64 overflow-auto bg-gray-900 text-gray-100 text-xs rounded-lg p-3 pr-16 whitespace-pre-wrap break-all">{text}</pre>
       <button onClick={() => copy(text, tag)} className="absolute top-2 right-2 px-2 py-1 rounded bg-gray-700 text-white text-[11px] hover:bg-gray-600 flex items-center gap-1">
         <Copy className="w-3 h-3" /> {copied === tag ? '已复制' : '复制'}
       </button>
@@ -73,29 +91,33 @@ export default function PublishDrawer({ agent, onClose, onChanged }: Props) {
       <motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
         transition={{ type: 'spring', damping: 25, stiffness: 200 }}
         className="relative w-full max-w-2xl bg-gray-50 h-full shadow-2xl flex flex-col border-l border-gray-200">
-        <div className="px-4 py-3 border-b border-gray-200 bg-white flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Rocket className="w-5 h-5 text-blue-600" />
-            <h2 className="text-base font-bold text-gray-900">对外发布 · {agent?.name}</h2>
+        <div className="px-4 py-3 border-b border-gray-200 bg-white flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <Rocket className="w-5 h-5 text-blue-600 shrink-0" />
+            <h2 className="flex min-w-0 items-center gap-1 text-base font-bold text-gray-900">
+              <span className="shrink-0">对外发布 ·</span>
+              <TruncatedText text={agent?.name} className="min-w-0" />
+            </h2>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 rounded-md hover:bg-gray-100"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-2 rounded-md hover:bg-gray-100 shrink-0"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-5 text-sm">
           {err && (
-            <div className="bg-red-50 text-red-700 p-3 rounded-lg border border-red-200 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4" /> {err}
+            <div className="bg-red-50 text-red-700 p-3 rounded-lg border border-red-200 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <TruncatedText as="div" text={err} lines={3} className="min-w-0" />
             </div>
           )}
 
           {/* 发布开关 */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
-            <div>
-              <div className="font-medium text-gray-900 flex items-center gap-2"><Globe className="w-4 h-4 text-gray-500" /> 发布状态</div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-medium text-gray-900 flex items-center gap-2"><Globe className="w-4 h-4 text-gray-500 shrink-0" /> 发布状态</div>
               <p className="text-xs text-gray-500 mt-1">开启后，被授权的调用方可通过入站 API 密钥调用此 Agent。</p>
             </div>
             <button onClick={togglePublish} disabled={busy}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${published ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${published ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
               {published ? '已发布（点击下线）' : '未发布（点击发布）'}
             </button>
           </div>
@@ -104,9 +126,9 @@ export default function PublishDrawer({ agent, onClose, onChanged }: Props) {
           <div className="space-y-3">
             <h3 className="font-semibold text-gray-900">调用信息</h3>
             <div className="text-xs text-gray-500 space-y-1">
-              <div>Base URL：<code className="bg-gray-100 rounded px-1.5 py-0.5">{base}</code></div>
-              <div>Model / Agent ID：<code className="bg-gray-100 rounded px-1.5 py-0.5">{id}</code></div>
-              <div>鉴权：请求头 <code className="bg-gray-100 rounded px-1.5 py-0.5">Authorization: Bearer &lt;API_KEY&gt;</code>（在「系统设置 → API 密钥治理」签发）</div>
+              <div className="break-all">Base URL：<code className="bg-gray-100 rounded px-1.5 py-0.5 break-all" title={tooltipText(base)}>{base}</code></div>
+              <div className="break-all">Model / Agent ID：<code className="bg-gray-100 rounded px-1.5 py-0.5 break-all" title={tooltipText(id)}>{id}</code></div>
+              <div className="break-all">鉴权：请求头 <code className="bg-gray-100 rounded px-1.5 py-0.5">Authorization: Bearer &lt;API_KEY&gt;</code>（在「系统设置 → API 密钥治理」签发）</div>
             </div>
             <div>
               <div className="text-xs font-medium text-gray-600 mb-1">原生接口（同步）</div>
@@ -127,9 +149,9 @@ export default function PublishDrawer({ agent, onClose, onChanged }: Props) {
             ) : (
               <div className="space-y-1">
                 {grantedClients.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-3 py-2">
-                    <span className="text-sm text-gray-800">{c.name}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 ${c.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
+                  <div key={c.id} className="flex items-center justify-between gap-3 bg-white border border-gray-200 rounded-lg px-3 py-2">
+                    <TruncatedText text={c.name} className="text-sm text-gray-800 min-w-0" />
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0 whitespace-nowrap ${c.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>
                       <CheckCircle2 className="w-3 h-3" /> {c.status === 'active' ? '启用' : '停用'} · {c.keys.length} 密钥
                     </span>
                   </div>

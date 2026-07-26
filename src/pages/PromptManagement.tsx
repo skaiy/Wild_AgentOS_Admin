@@ -7,6 +7,7 @@ import { GitBranch, Plus, Check, Radio, Trash2, ChevronRight, Zap } from 'lucide
 import { usePrompts } from '../api/hooks';
 import { api, type PromptVersion } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
+import TruncatedText from '../components/TruncatedText';
 
 const EMPTY_FORM = {
   name: '', description: '', template: '', model: '', version: '',
@@ -73,7 +74,7 @@ export default function PromptManagement() {
 
       {/* 全局提示 */}
       {msg && (
-        <div className={`text-sm px-4 py-2 rounded border ${msg.ok ? 'bg-gray-50 border-gray-300 text-gray-700' : 'bg-red-50 border-red-300 text-red-700'}`}>
+        <div className={`text-sm px-4 py-2 rounded border break-all ${msg.ok ? 'bg-gray-50 border-gray-300 text-gray-700' : 'bg-red-50 border-red-300 text-red-700'}`}>
           {msg.text}
         </div>
       )}
@@ -106,26 +107,26 @@ export default function PromptManagement() {
 
       {/* 版本列表 */}
       {loading && !data && <p className="text-sm text-gray-400">加载中…</p>}
-      {error && !live && <p className="text-sm text-red-500">后端离线：{error}（列表为空）</p>}
+      {error && !live && <p className="text-sm text-red-500 break-all">后端离线：{error}（列表为空）</p>}
 
       <div className="space-y-3">
         {versions.length === 0 && !loading && (
           <p className="text-sm text-gray-400">暂无版本，请点击「新建版本」创建第一个 Prompt。</p>
         )}
         {versions.map(v => (
-          <div key={v.id} className={`bg-white border rounded-lg p-4 space-y-2 ${v.is_active ? 'border-gray-800' : 'border-gray-200'}`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-gray-900 text-sm">{v.name}</span>
-                <span className="text-xs text-gray-400 font-mono">v{v.version}</span>
-                {v.is_active && <span className="text-xs px-2 py-0.5 bg-gray-900 text-white rounded">生产激活</span>}
+          <div key={v.id} className={`bg-white border rounded-lg p-4 space-y-2 min-w-0 ${v.is_active ? 'border-gray-800' : 'border-gray-200'}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <TruncatedText text={v.name} className="min-w-0 flex-1 font-medium text-gray-900 text-sm" />
+                <TruncatedText text={v.version ? `v${v.version}` : ''} className="max-w-[8rem] text-xs text-gray-400 font-mono" fallback={null} />
+                {v.is_active && <span className="text-xs px-2 py-0.5 bg-gray-900 text-white rounded shrink-0">生产激活</span>}
                 {v.canary_percent > 0 && (
-                  <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded flex items-center gap-1">
+                  <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-700 rounded flex items-center gap-1 shrink-0">
                     <Zap className="w-3 h-3" /> 灰度 {v.canary_percent}%
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button onClick={() => handleActivate(v.id)} disabled={busy || v.is_active} title="激活为生产版本"
                   className="p-1.5 rounded hover:bg-gray-100 text-gray-500 disabled:opacity-30">
                   <Check className="w-4 h-4" />
@@ -140,12 +141,14 @@ export default function PromptManagement() {
                 </button>
               </div>
             </div>
-            <div className="text-xs text-gray-500">{v.description}</div>
-            <div className="text-xs text-gray-400 flex gap-3">
-              <span>模型：<span className="font-mono text-gray-700">{v.model}</span></span>
-              <span>创建：{new Date(v.created_at).toLocaleString('zh-CN')}</span>
+            <TruncatedText as="div" lines={2} text={v.description} className="text-xs text-gray-500" fallback={null} />
+            <div className="text-xs text-gray-400 flex flex-wrap gap-3">
+              <span className="flex min-w-0 max-w-[16rem] items-baseline gap-1">
+                模型：<TruncatedText text={v.model} className="min-w-0 flex-1 font-mono text-gray-700" />
+              </span>
+              <span className="shrink-0">创建：{new Date(v.created_at).toLocaleString('zh-CN')}</span>
             </div>
-            <div className="text-xs font-mono text-gray-500 bg-gray-50 rounded px-2 py-1 truncate">{v.template.slice(0, 120)}{v.template.length > 120 ? '…' : ''}</div>
+            <div className="text-xs font-mono text-gray-500 bg-gray-50 rounded px-2 py-1 break-all" title={v.template.length > 120 ? v.template.slice(0, 500) : undefined}>{v.template.slice(0, 120)}{v.template.length > 120 ? '…' : ''}</div>
 
             {/* 灰度滑条 */}
             {canaryId === v.id && (

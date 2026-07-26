@@ -4,6 +4,7 @@ import { Network, Database, Server, Key, Activity, Plus, X, Save } from 'lucide-
 import { useHealth, useMcpServers } from '../api/hooks';
 import { api } from '../api/client';
 import LiveBadge from '../components/LiveBadge';
+import { TruncatedText } from '../components/TruncatedText';
 
 export default function MCPHub() {
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
@@ -113,23 +114,23 @@ export default function MCPHub() {
               const isWarning = s.status === 'warning' || s.status === 'degraded';
               const dotCls = isHealthy ? 'bg-green-500' : isWarning ? 'bg-amber-500' : 'bg-red-500';
               return (
-                <div key={s.id} className="px-6 py-4 flex items-start justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="mt-1">
+                <div key={s.id} className="px-6 py-4 flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="mt-1 shrink-0">
                       {s.protocol === 'http' ? <Database className="w-4 h-4 text-blue-500" /> : <Server className="w-4 h-4 text-purple-500" />}
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">{s.name}</span>
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{s.protocol}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <TruncatedText text={s.name} className="font-medium text-gray-900" />
+                        <TruncatedText text={s.protocol} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full max-w-[100px] shrink-0" />
                       </div>
-                      {s.description && <p className="text-xs text-gray-500 mt-0.5">{s.description}</p>}
-                      <p className="text-xs text-gray-400 mt-0.5 font-mono">{s.endpoint}</p>
+                      {s.description && <TruncatedText as="p" text={s.description} lines={2} className="text-xs text-gray-500 mt-0.5" />}
+                      <TruncatedText as="p" text={s.endpoint} className="text-xs text-gray-400 mt-0.5 font-mono" />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 ml-4">
-                    <span className={`w-2 h-2 rounded-full ${dotCls}`}></span>
-                    <span className="text-xs text-gray-500">{s.status}</span>
+                  <div className="flex items-center gap-2 shrink-0 ml-4 max-w-[140px]">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`}></span>
+                    <TruncatedText text={s.status} className="text-xs text-gray-500 min-w-0" />
                   </div>
                 </div>
               );
@@ -189,9 +190,9 @@ export default function MCPHub() {
                   注册后服务器将添加到实时注册表（运行期内存，重启后清空）。
                 </div>
                 {regError && (
-                  <div className="flex items-center gap-2 text-sm bg-red-50 text-red-700 p-3 rounded-lg border border-red-200">
-                    <X className="w-4 h-4 shrink-0" />
-                    {regError}
+                  <div className="flex items-start gap-2 text-sm bg-red-50 text-red-700 p-3 rounded-lg border border-red-200">
+                    <X className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span className="min-w-0 max-h-24 overflow-y-auto whitespace-pre-wrap break-all">{regError}</span>
                   </div>
                 )}
               </div>

@@ -16,7 +16,7 @@ export default function MemoryCenter({ initialTab = 'system' }: { initialTab?: M
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="min-w-0">
         <h1 className="text-2xl font-bold text-gray-900">记忆中心 (Memory Center)</h1>
         <p className="text-sm text-gray-500 mt-1">系统记忆——Agent 运行时自产的 L0–L3 四层记忆与工作黑板</p>
       </div>
@@ -29,11 +29,11 @@ export default function MemoryCenter({ initialTab = 'system' }: { initialTab?: M
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition-colors ${
+              className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 -mb-px transition-colors whitespace-nowrap ${
                 active ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
-              <Icon className="w-4 h-4" /> {t.label}
+              <Icon className="w-4 h-4 shrink-0" /> {t.label}
             </button>
           );
         })}

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Puzzle, Search, Plus, X, GitBranch, CheckCircle2, AlertCircle, Play, Box, Shield, ShieldCheck, ShieldAlert, ShieldQuestion, Terminal, Cpu, Boxes, Download, FileCode2, Loader2, Pencil, Trash2, ChevronDown, Lock, RefreshCw, MinusCircle } from 'lucide-react';
 import { useSkills } from '../api/hooks';
 import LiveBadge from '../components/LiveBadge';
+import TruncatedText, { tooltipText } from '../components/TruncatedText';
 import { api } from '../api/client';
 import type { SkillMeta, SignatureStatus, PipelineRun, PipelineStageStatus, PipelineSource } from '../api/client';
 
@@ -196,7 +197,7 @@ function PipelinePanel({ skillIri, canRerun, onAfterRerun }: {
       {error && (
         <div className="flex items-start gap-2 text-xs text-red-700 bg-red-50 p-2.5 rounded-lg border border-red-200">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>{error}</span>
+          <span className="min-w-0 break-all">{error}</span>
         </div>
       )}
 
@@ -245,11 +246,15 @@ function PipelinePanel({ skillIri, canRerun, onAfterRerun }: {
                   {activeRun.published ? '已发布注册' : activeRun.gate_passed ? '门禁通过但未发布' : '门禁拦截'}
                 </span>
                 <span className="text-gray-500">来源：{SOURCE_LABEL[activeRun.source]}</span>
-                <span className="text-gray-500">触发者：{activeRun.triggered_by || '—'}</span>
+                <span className="flex min-w-0 max-w-[14rem] text-gray-500">
+                  触发者：<TruncatedText text={activeRun.triggered_by} className="min-w-0 flex-1" />
+                </span>
                 <span className="text-gray-500">耗时：{fmtDuration(activeRun.duration_ms)}</span>
-                <span className="text-gray-500">版本：{activeRun.version || '—'}</span>
+                <span className="flex min-w-0 max-w-[14rem] text-gray-500">
+                  版本：<TruncatedText text={activeRun.version} className="min-w-0 flex-1" />
+                </span>
               </div>
-              <p className="text-xs text-gray-600">{activeRun.summary}</p>
+              <p className="text-xs text-gray-600 break-all">{activeRun.summary}</p>
 
               {/* 各阶段结论 */}
               <div className="relative">
@@ -265,14 +270,16 @@ function PipelinePanel({ skillIri, canRerun, onAfterRerun }: {
                         </div>
                         <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <h5 className="text-sm font-bold text-gray-900">{st.title}</h5>
-                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded border ${ui.cls}`}>{ui.label}</span>
+                            <h5 className="min-w-0 flex-1 text-sm font-bold text-gray-900">
+                              <TruncatedText text={st.title} lines={2} className="block" />
+                            </h5>
+                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded border shrink-0 ${ui.cls}`}>{ui.label}</span>
                           </div>
-                          <p className="text-xs text-gray-500 mt-1">{st.summary} · 耗时 {fmtDuration(st.duration_ms)}</p>
+                          <p className="text-xs text-gray-500 mt-1 break-all" title={tooltipText(st.summary)}>{st.summary} · 耗时 {fmtDuration(st.duration_ms)}</p>
                           {st.details.length > 0 && (
                             <ul className="mt-2 space-y-0.5">
                               {st.details.map((d, i) => (
-                                <li key={i} className="text-xs text-gray-600 font-mono whitespace-pre-wrap break-words">{d}</li>
+                                <li key={i} className="text-xs text-gray-600 font-mono whitespace-pre-wrap break-all">{d}</li>
                               ))}
                             </ul>
                           )}
@@ -312,6 +319,7 @@ export default function SkillRegistry() {
   // skill.yaml 预览状态
   const [manifestText, setManifestText] = useState<string | null>(null);
   const [manifestLoading, setManifestLoading] = useState(false);
+  const [manifestDownloading, setManifestDownloading] = useState(false);
   const [manifestError, setManifestError] = useState<string | null>(null);
   const baseList = useMemo(
     () => (live && data?.skills?.length ? data.skills.map(adaptSkill) : []),
@@ -519,6 +527,31 @@ export default function SkillRegistry() {
     }
   };
 
+  const downloadManifest = async () => {
+    if (!selectedSkill?.id) return;
+    setManifestDownloading(true);
+    setManifestError(null);
+    try {
+      const text = await api.skillManifest(selectedSkill.id);
+      const blob = new Blob([typeof text === 'string' ? text : JSON.stringify(text, null, 2)], {
+        type: 'application/x-yaml;charset=utf-8',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const filename = String(selectedSkill.name || 'skill').replace(/[^\p{L}\p{N}_-]+/gu, '_');
+      link.href = url;
+      link.download = `${filename || 'skill'}.skill.yaml`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setManifestError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setManifestDownloading(false);
+    }
+  };
+
   /** 删除技能（仅应用级）：二次确认后调用 DELETE，成功刷新列表；若在详情弹窗则关闭。 */
   const handleDelete = async (skill: SkillCard) => {
     if (skill.scope === 'system') return; // 系统级只读，前端不触发
@@ -614,7 +647,7 @@ export default function SkillRegistry() {
       {deleteError && !isModalOpen && (
         <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 p-3 rounded-lg border border-red-200">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span>删除失败：{deleteError}</span>
+          <span className="min-w-0 break-all">删除失败：{deleteError}</span>
         </div>
       )}
 
@@ -629,53 +662,49 @@ export default function SkillRegistry() {
             className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-all flex flex-col"
           >
             <div className="p-5 flex-1">
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${skill.scope === 'system' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-50 text-emerald-600'}`}>
+              <div className="flex justify-between items-start gap-3 mb-3">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <div className={`p-2 rounded-lg shrink-0 ${skill.scope === 'system' ? 'bg-slate-100 text-slate-700' : 'bg-emerald-50 text-emerald-600'}`}>
                     {skill.scope === 'system' ? <Cpu className="w-5 h-5" /> : <Box className="w-5 h-5" />}
                   </div>
-                  <div>
-                    <h3 className="font-bold text-gray-900">{skill.name}</h3>
-                    <p className="text-xs text-gray-500">{skill.author} · {skill.lastUpdate}</p>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-bold text-gray-900">
+                      <TruncatedText text={skill.name} lines={2} className="block" />
+                    </h3>
+                    <TruncatedText as="p" text={`${skill.author} · ${skill.lastUpdate}`} className="text-xs text-gray-500" />
                   </div>
                 </div>
-                <div className="flex flex-col items-end gap-1.5">
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
                   <ScopeBadge scope={skill.scope} />
-                  <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded border border-gray-200">
-                    {skill.version}
-                  </span>
+                  <TruncatedText text={skill.version} className="max-w-[8rem] text-xs font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded border border-gray-200" />
                   <SignatureBadge status={'signatureStatus' in skill ? skill.signatureStatus : undefined} />
                 </div>
               </div>
-              
-              <p className="text-sm text-gray-600 mb-4 line-clamp-2 h-10">
-                {skill.description}
-              </p>
+
+              <TruncatedText as="p" lines={2} text={skill.description} className="text-sm text-gray-600 mb-4 h-10" />
 
               <div className="flex flex-wrap gap-2 mb-4">
                 {skill.tags.map(tag => (
-                  <span key={tag} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md border border-blue-100">
-                    {tag}
-                  </span>
+                  <TruncatedText key={tag} text={tag} className="max-w-[10rem] text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-md border border-blue-100" />
                 ))}
               </div>
 
               {skill.status === 'conflict' && (
                 <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 p-2 rounded-md border border-amber-200 mb-4">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{skill.conflictMsg}</span>
+                  <span className="min-w-0 break-all">{skill.conflictMsg}</span>
                 </div>
               )}
             </div>
 
-            <div className="bg-gray-50 px-5 py-3 border-t border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="bg-gray-50 px-5 py-3 border-t border-gray-200 flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 {skill.status === 'published' && <span className="flex items-center gap-1 text-xs font-medium text-green-600"><CheckCircle2 className="w-4 h-4" /> 已发布</span>}
                 {skill.status === 'canary' && <span className="flex items-center gap-1 text-xs font-medium text-purple-600"><GitBranch className="w-4 h-4" /> 灰度中 ({skill.canaryTraffic})</span>}
                 {skill.status === 'testing' && <span className="flex items-center gap-1 text-xs font-medium text-blue-600"><Play className="w-4 h-4" /> 测试中</span>}
                 {skill.status === 'conflict' && <span className="flex items-center gap-1 text-xs font-medium text-red-600"><X className="w-4 h-4" /> 拦截</span>}
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1">
                 <button
                   onClick={() => openModal('details', skill)}
                   className="text-sm text-blue-600 font-medium hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50"
@@ -726,19 +755,21 @@ export default function SkillRegistry() {
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} 
               className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-              onClick={closeModal}
             />
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} 
               className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden relative z-10 flex flex-col"
             >
-              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50">
-                <h2 className="text-lg font-bold text-gray-900">
-                  {modalType === 'create' ? '新建/导入技能包'
-                    : modalType === 'edit' ? `编辑技能: ${selectedSkill?.name}`
-                    : `技能详情: ${selectedSkill?.name}`}
+              <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between gap-3 bg-gray-50">
+                <h2 className="min-w-0 flex-1 text-lg font-bold text-gray-900">
+                  {modalType === 'create' ? '新建/导入技能包' : (
+                    <span className="flex min-w-0 items-baseline gap-1">
+                      <span className="shrink-0">{modalType === 'edit' ? '编辑技能:' : '技能详情:'}</span>
+                      <TruncatedText text={selectedSkill?.name} className="min-w-0 flex-1" />
+                    </span>
+                  )}
                 </h2>
-                <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
+                <button onClick={closeModal} className="shrink-0 text-gray-400 hover:text-gray-600 p-1 rounded-md hover:bg-gray-200 transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -765,7 +796,9 @@ export default function SkillRegistry() {
 
                     {modalType === 'create' && (<>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Git 仓库地址 <span className="text-gray-400 font-normal text-xs">（可选，填写后自动 Git 导入）</span></label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Git 仓库地址 <span className="text-red-500 font-normal text-xs">（与技能 IRI 二选一必填）</span>
+                      </label>
                       <input
                         type="text" value={form.repo}
                         onChange={(e) => setField('repo', e.target.value)}
@@ -824,7 +857,7 @@ export default function SkillRegistry() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         技能 IRI{modalType === 'edit'
                           ? <span className="text-gray-400 font-normal text-xs">（主键，不可修改）</span>
-                          : '（留空则依据仓库名自动生成）'}
+                          : <span className="text-red-500 font-normal text-xs">（与 Git 仓库地址二选一必填）</span>}
                       </label>
                       <input type="text" value={form.skill_iri}
                         onChange={(e) => setField('skill_iri', e.target.value)}
@@ -864,7 +897,7 @@ export default function SkillRegistry() {
                     {submitError && (
                       <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 p-3 rounded-lg border border-red-200">
                         <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{submitError}</span>
+                        <span className="min-w-0 break-all">{submitError}</span>
                       </div>
                     )}
                   </div>
@@ -872,12 +905,14 @@ export default function SkillRegistry() {
 
                 {modalType === 'details' && (
                   <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-bold text-gray-900">{selectedSkill?.name}</h3>
-                        <p className="text-sm text-gray-500 font-mono mt-1">版本: {selectedSkill?.version} | 提交者: {selectedSkill?.author}</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-lg font-bold text-gray-900">
+                          <TruncatedText text={selectedSkill?.name} lines={2} className="block" />
+                        </h3>
+                        <p className="text-sm text-gray-500 font-mono mt-1 break-all">版本: {selectedSkill?.version} | 提交者: {selectedSkill?.author}</p>
                       </div>
-                      <div className="flex flex-col items-end gap-2">
+                      <div className="flex shrink-0 flex-col items-end gap-2">
                         <button
                           onClick={loadManifest} disabled={manifestLoading}
                           className="px-3 py-1.5 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-1.5 disabled:opacity-60"
@@ -885,12 +920,15 @@ export default function SkillRegistry() {
                           {manifestLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode2 className="w-4 h-4" />}
                           查看 skill.yaml
                         </button>
-                        <a
-                          href={api.skillManifestUrl(selectedSkill?.id)} download
+                        <button
+                          type="button"
+                          onClick={downloadManifest}
+                          disabled={manifestDownloading}
                           className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-1.5"
                         >
-                          <Download className="w-4 h-4" /> 下载 skill.yaml
-                        </a>
+                          {manifestDownloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                          {manifestDownloading ? '下载中…' : '下载 skill.yaml'}
+                        </button>
                       </div>
                     </div>
 
@@ -900,7 +938,7 @@ export default function SkillRegistry() {
                           <FileCode2 className="w-3.5 h-3.5" /> skill.yaml 预览
                         </div>
                         {manifestError ? (
-                          <p className="p-3 text-sm text-red-600">{manifestError}</p>
+                          <p className="p-3 text-sm text-red-600 break-all">{manifestError}</p>
                         ) : (
                           <pre className="p-3 text-xs bg-gray-900 text-gray-100 overflow-x-auto max-h-64 whitespace-pre">{manifestText}</pre>
                         )}
@@ -936,14 +974,14 @@ export default function SkillRegistry() {
                             <Field label="允许角色">
                               <div className="flex flex-wrap gap-1">
                                 {(raw.allowed_roles || []).length
-                                  ? raw.allowed_roles.map((r) => <span key={r} className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100">{r}</span>)
+                                  ? raw.allowed_roles.map((r) => <TruncatedText key={r} text={r} className="max-w-[10rem] text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100" />)
                                   : '（无）'}
                               </div>
                             </Field>
                             <Field label="权限">
                               <div className="flex flex-wrap gap-1">
                                 {perms.length
-                                  ? perms.map((p) => <span key={p} className="text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100">{p}</span>)
+                                  ? perms.map((p) => <TruncatedText key={p} text={p} className="max-w-[10rem] text-xs bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-100" />)
                                   : '（无）'}
                               </div>
                             </Field>
@@ -981,7 +1019,7 @@ export default function SkillRegistry() {
                     {deleteError && (
                       <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 p-3 rounded-lg border border-red-200">
                         <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>{deleteError}</span>
+                        <span className="min-w-0 break-all">{deleteError}</span>
                       </div>
                     )}
                   </div>

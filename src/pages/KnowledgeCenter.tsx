@@ -4,6 +4,7 @@ import KnowledgeBases from './KnowledgeBases';
 import OntologyLayer from './OntologyLayer';
 import { useUnifiedStats } from '../api/hooks';
 import LiveBadge from '../components/LiveBadge';
+import { TruncatedText, tooltipText } from '../components/TruncatedText';
 
 type KnowTab = 'bases' | 'ontology';
 
@@ -25,13 +26,13 @@ function Stat({ icon: Icon, tone, label, value, sub }: {
 }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 bg-white rounded-xl border border-gray-200 shadow-sm">
-      <div className={`p-2 rounded-lg ${tone}`}>
+      <div className={`p-2 rounded-lg shrink-0 ${tone}`}>
         <Icon className="w-5 h-5" />
       </div>
       <div className="min-w-0">
-        <div className="text-xl font-bold text-gray-900 leading-tight">{value}</div>
-        <div className="text-xs text-gray-500 truncate">{label}</div>
-        {sub && <div className="text-[11px] text-gray-400 truncate">{sub}</div>}
+        <div className="text-xl font-bold text-gray-900 leading-tight truncate" title={tooltipText(value)}>{value}</div>
+        <TruncatedText as="div" text={label} className="text-xs text-gray-500" />
+        {sub && <TruncatedText as="div" text={sub} className="text-[11px] text-gray-400" />}
       </div>
     </div>
   );
@@ -46,11 +47,14 @@ function KnowledgeStatsBar() {
   const ont = s?.ontology;
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-gray-500">业务知识总览</span>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-xs font-medium text-gray-500 shrink-0">业务知识总览</span>
         <LiveBadge live={live} loading={stats.loading} error={stats.error} />
         {live && ont?.domain && (
-          <span className="text-[11px] text-gray-400">本体域：{ont.domain}</span>
+          <span className="flex items-center gap-1 min-w-0 text-[11px] text-gray-400">
+            <span className="shrink-0">本体域：</span>
+            <TruncatedText text={ont.domain} className="max-w-[280px]" />
+          </span>
         )}
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
